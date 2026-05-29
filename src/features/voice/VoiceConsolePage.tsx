@@ -189,7 +189,7 @@ export function VoiceConsolePage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold tracking-normal">Browser voice console</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Capture microphone audio and stream turns locally.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Capture microphone audio and stream turns to self-hosted runtimes.</p>
         </div>
         <Badge variant={voiceState.status === "failed" ? "danger" : isRecording ? "success" : "outline"}>
           {voiceState.status}

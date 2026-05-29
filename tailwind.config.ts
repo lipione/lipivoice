@@ -31,6 +31,15 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        brand: {
+          ink: "#06183A",
+          violet: "#5B46E8",
+          violetSoft: "#F1EEFF",
+          line: "#DADDE7",
+        },
+      },
+      backgroundImage: {
+        "brand-voice-gradient": "linear-gradient(90deg, #5B46E8 0%, #735EF5 52%, #4F3AD9 100%)",
       },
       borderRadius: {
         lg: "0.5rem",

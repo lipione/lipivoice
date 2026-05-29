@@ -115,7 +115,7 @@ export function OverviewPage() {
           <div>
             <h2 className="text-base font-semibold tracking-normal">Operational summary</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Local voice-agent runtime status and current activity.
+              Self-hosted voice-agent runtime status and current activity.
             </p>
           </div>
           <Badge variant={runtimeSummary.badgeVariant}>{runtimeSummary.banner}</Badge>
@@ -151,13 +151,13 @@ export function OverviewPage() {
               Current runbook
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Use the sidebar to configure agents, test web voice, review calls, and inspect local usage.
+              Use the sidebar to configure agents, test web voice, review calls, and inspect usage.
             </p>
           </div>
           <div className="grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Inference</span>
-              <span className="truncate font-medium">Local model</span>
+              <span className="truncate font-medium">Open model</span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Speech</span>

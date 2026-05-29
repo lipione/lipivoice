@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 
+import { LipiVoiceLogo } from "@/components/brand/LipiVoiceLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -74,10 +75,9 @@ const navigationItems: NavigationItem[] = [
 export function DashboardShell({ activePage, onNavigate, children }: DashboardShellProps) {
   return (
     <div className="flex min-h-screen w-full flex-col bg-background text-foreground md:flex-row">
-      <aside className="flex w-full min-w-0 flex-col border-b border-border bg-card md:w-64 md:shrink-0 md:border-b-0 md:border-r">
-        <div className="border-b border-border px-4 py-3 md:py-4">
-          <div className="text-base font-semibold leading-6">LipiVoice</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">Local runtime</div>
+      <aside className="flex w-full min-w-0 flex-col border-b border-border bg-card md:w-72 md:shrink-0 md:border-b-0 md:border-r">
+        <div className="border-b border-border bg-white px-4 py-3 md:py-4">
+          <LipiVoiceLogo size="sm" />
         </div>
 
         <nav
@@ -94,8 +94,10 @@ export function DashboardShell({ activePage, onNavigate, children }: DashboardSh
                 type="button"
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
-                  "h-9 max-w-44 flex-none justify-start overflow-hidden px-3 text-left md:w-full md:max-w-none md:flex-auto md:px-2.5",
-                  isActive && "bg-muted font-semibold",
+                  "h-9 max-w-44 flex-none justify-start overflow-hidden px-3 text-left text-muted-foreground md:w-full md:max-w-none md:flex-auto md:px-2.5",
+                  "hover:bg-brand-violetSoft hover:text-brand-ink",
+                  isActive &&
+                    "bg-brand-violetSoft font-semibold text-brand-ink shadow-[inset_3px_0_0_#5B46E8]",
                 )}
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => onNavigate(item.id)}
@@ -109,18 +111,22 @@ export function DashboardShell({ activePage, onNavigate, children }: DashboardSh
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-16 flex-col items-start justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:flex-row sm:items-center md:px-6">
+        <header className="flex min-h-16 flex-col items-start justify-between gap-3 border-b border-border bg-white/80 px-4 py-3 backdrop-blur sm:flex-row sm:items-center md:px-6">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-normal">{pageLabels[activePage]}</h1>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
             <Badge variant="outline">Open-source</Badge>
-            <Badge variant="success">Local first</Badge>
-            <Badge variant="warning">Phone simulated</Badge>
+            <Badge variant="secondary" className="bg-brand-violetSoft text-brand-violet">
+              Self-hosted
+            </Badge>
+            <Badge variant="success">Voice ready</Badge>
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-auto bg-muted/30 p-4 md:p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top_right,rgba(91,70,232,0.08),transparent_28rem),linear-gradient(180deg,#F8F9FC_0%,#F4F6FA_100%)] p-4 md:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

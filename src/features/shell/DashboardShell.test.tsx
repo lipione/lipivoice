@@ -16,6 +16,8 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("button", { name: "Phone Numbers" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeInTheDocument();
     expect(screen.getByText("Overview content")).toBeInTheDocument();
+    expect(screen.getByLabelText("LipiVoice")).toBeInTheDocument();
+    expect(screen.getByText("Self-hosted")).toBeInTheDocument();
   });
 
   it("calls onNavigate with the selected page id", async () => {
