@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execa, type Options } from "execa";
+import { execa } from "execa";
 import { mapRuntimeHealth } from "./health";
 import type { RuntimeHealthResult, SttAdapter } from "./types";
 
@@ -48,7 +48,7 @@ export class WhisperCppAdapter implements SttAdapter {
         "-otxt",
         "-of",
         outputBase,
-      ] satisfies string[], {} satisfies Options);
+      ]);
 
       const text = await readFile(`${outputBase}.txt`, "utf8");
 
