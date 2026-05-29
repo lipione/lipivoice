@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultWorkspace } from "./defaults";
+import { createDefaultWorkspace, createRemoteWorkspace } from "./defaults";
 import { agentSchema, modelAssetSchema, modelRuntimeSchema, voiceSchema } from "./schemas";
 
 describe("domain defaults", () => {
@@ -49,5 +49,55 @@ describe("domain defaults", () => {
     for (const voice of workspace.voices) {
       expect(runtimeIds.has(voice.runtimeId)).toBe(true);
     }
+  });
+
+  it("seeds a remote workspace using vLLM and lipi-ml runtimes", () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+
+    expect(workspace.agents[0]).toMatchObject({
+      modelRuntimeId: "runtime_vllm",
+      modelAssetId: "model_vllm_remote",
+      transcriberRuntimeId: "runtime_lipi_ml_stt",
+      voiceId: "voice_lipi_ml_en",
+      deploymentState: "ready",
+    });
+    expect(workspace.modelRuntimes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "runtime_vllm",
+          adapter: "vllm",
+          endpoint: "http://127.0.0.1:8002/v1",
+          defaultModelId: "model_vllm_remote",
+        }),
+        expect.objectContaining({
+          id: "runtime_lipi_ml_stt",
+          adapter: "faster_whisper",
+          endpoint: "http://127.0.0.1:5001/stt",
+        }),
+        expect.objectContaining({
+          id: "runtime_lipi_ml_tts",
+          adapter: "piper",
+          endpoint: "http://127.0.0.1:5001/tts",
+        }),
+      ]),
+    );
+    expect(workspace.modelAssets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "model_vllm_remote", name: "gemma-4" }),
+        expect.objectContaining({ id: "model_lipi_ml_whisper_large_v3" }),
+        expect.objectContaining({ id: "model_lipi_ml_piper" }),
+      ]),
+    );
+    expect(workspace.voices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "voice_lipi_ml_en", language: "en-US" }),
+        expect.objectContaining({ id: "voice_lipi_ml_ne", language: "ne-NP" }),
+      ]),
+    );
   });
 });

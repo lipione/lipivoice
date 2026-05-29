@@ -30,7 +30,33 @@ export PORT=8787
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
-If Piper is not configured, Voice Lab intentionally reports `runtime_not_configured`. The Web Voice realtime turn pipeline is still stubbed in this prototype, so it also reports `runtime_not_configured` even after the local runtime paths are present.
+If Piper is not configured, Voice Lab intentionally reports `runtime_not_configured`. Web Voice checks the configured LLM, STT, and TTS runtimes before accepting audio.
+
+## Remote Runtime Setup
+
+Use the remote preset when running against the shared GPU server services:
+
+```sh
+export LIPIVOICE_RUNTIME_PRESET=remote
+export VLLM_BASE_URL=http://127.0.0.1:8002/v1
+export VLLM_MODEL=gemma-4
+export LIPI_ML_BASE_URL=http://127.0.0.1:5001
+export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
+```
+
+The remote preset seeds the workspace with:
+
+- vLLM as the OpenAI-compatible LLM runtime.
+- `lipi-ml` faster-whisper large-v3 for STT.
+- `lipi-ml` Piper voices for English and Nepali TTS.
+
+On the remote server, build and run without installing host Node:
+
+```sh
+docker compose -f docker-compose.remote.yml up -d --build
+```
+
+The container uses host networking so it can reach existing services on `127.0.0.1:8002` and `127.0.0.1:5001`. The app listens on `http://127.0.0.1:8787`.
 
 ## Development
 

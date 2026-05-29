@@ -1,12 +1,16 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
-import { createDefaultWorkspace } from "@/domain/defaults";
+import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
 import { agentSchema } from "@/domain/schemas";
 import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
+import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./runtimes/lipiMl";
 import { OllamaAdapter } from "./runtimes/ollama";
+import { OpenAICompatibleAdapter } from "./runtimes/openAiCompatible";
 import { PiperAdapter } from "./runtimes/piper";
 import { WhisperCppAdapter } from "./runtimes/whisperCpp";
 import type { RuntimeHealthResult, TtsAdapter } from "./runtimes/types";
@@ -38,7 +42,23 @@ export function createAppContextForTest(seed: WorkspaceSeed, deps?: AppDeps): Ap
 
 export function createApp(config: ServerConfig): AppContext {
   const repositories = createRepositories(createDatabase(config.databasePath));
-  repositories.seedWorkspace(createDefaultWorkspace());
+  repositories.seedWorkspace(createWorkspaceFromConfig(config));
+
+  if (config.runtimePreset === "remote") {
+    const vllm = new OpenAICompatibleAdapter({ baseUrl: config.vllmBaseUrl, model: config.vllmModel });
+    const stt = new LipiMlSttAdapter({ baseUrl: config.lipiMlBaseUrl });
+    const tts = new LipiMlTtsAdapter({ baseUrl: config.lipiMlBaseUrl });
+
+    return createAppContextWithRepositories(repositories, {
+      tts,
+      runtimeHealth: {
+        vllm: () => vllm.health(),
+        faster_whisper: () => stt.health(),
+        piper: () => tts.health(),
+      },
+    });
+  }
+
   const ollama = new OllamaAdapter({ baseUrl: config.ollamaBaseUrl, model: config.ollamaModel });
   const whisper = new WhisperCppAdapter({ binPath: config.whisperCppBin, modelPath: config.whisperModelPath });
   const piper = new PiperAdapter({ binPath: config.piperBin, voicePath: config.piperVoicePath });
@@ -51,6 +71,18 @@ export function createApp(config: ServerConfig): AppContext {
       piper: () => piper.health(),
     },
   });
+}
+
+function createWorkspaceFromConfig(config: ServerConfig): WorkspaceSeed {
+  if (config.runtimePreset === "remote") {
+    return createRemoteWorkspace({
+      vllmEndpoint: config.vllmBaseUrl,
+      vllmModel: config.vllmModel,
+      lipiMlEndpoint: config.lipiMlBaseUrl,
+    });
+  }
+
+  return createDefaultWorkspace();
 }
 
 function createAppContextWithRepositories(repositories: Repositories, deps: AppDeps = {}): AppContext {
@@ -184,6 +216,8 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.status(201).json(result);
   });
 
+  serveStaticFrontend(app);
+
   app.use(createErrorMiddleware());
 
   return {
@@ -198,6 +232,25 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
       closed = true;
     },
   };
+}
+
+function serveStaticFrontend(app: express.Express) {
+  const staticDir = join(process.cwd(), "dist");
+  const indexPath = join(staticDir, "index.html");
+
+  if (!existsSync(indexPath)) {
+    return;
+  }
+
+  app.use(express.static(staticDir));
+  app.use((request, response, next) => {
+    if (request.method !== "GET" || request.path.startsWith("/api/")) {
+      next();
+      return;
+    }
+
+    response.sendFile(indexPath);
+  });
 }
 
 function createErrorMiddleware(): ErrorRequestHandler {

@@ -1,8 +1,12 @@
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectSpeechTurn } from "./energyVad";
 import { mapRuntimeHealth } from "./health";
+import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./lipiMl";
 import { OllamaAdapter } from "./ollama";
+import { OpenAICompatibleAdapter } from "./openAiCompatible";
 import { PiperAdapter } from "./piper";
 import { WhisperCppAdapter } from "./whisperCpp";
 
@@ -120,6 +124,101 @@ describe("runtime adapters", () => {
     ).rejects.toThrow("Ollama chat response did not include message content");
   });
 
+  it("reports healthy OpenAI-compatible health when models include configured vLLM model", async () => {
+    const adapter = new OpenAICompatibleAdapter({
+      baseUrl: "http://vllm.test/v1",
+      model: "gemma-4",
+      fetchImpl: async () => Response.json({ data: [{ id: "gemma-4" }] }),
+    });
+
+    await expect(adapter.health()).resolves.toMatchObject({
+      status: "healthy",
+      reason: null,
+    });
+  });
+
+  it("sends OpenAI-compatible chat completions and returns assistant content", async () => {
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new OpenAICompatibleAdapter({
+      baseUrl: "http://vllm.test/v1",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        return Response.json({ choices: [{ message: { content: "remote reply" } }] });
+      },
+    });
+
+    await expect(
+      adapter.chat({
+        model: "gemma-4",
+        system: "Be concise.",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    ).resolves.toBe("remote reply");
+
+    expect(requests[0]?.url).toBe("http://vllm.test/v1/chat/completions");
+    expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
+      model: "gemma-4",
+      messages: [
+        { role: "system", content: "Be concise." },
+        { role: "user", content: "Hello" },
+      ],
+      stream: false,
+    });
+  });
+
+  it("reports healthy lipi-ml STT health when faster-whisper is loaded", async () => {
+    const adapter = new LipiMlSttAdapter({
+      baseUrl: "http://lipi-ml.test",
+      fetchImpl: async () => Response.json({ status: "ok", stt_loaded: true }),
+    });
+
+    await expect(adapter.health()).resolves.toMatchObject({ status: "healthy", reason: null });
+  });
+
+  it("posts WAV audio to lipi-ml STT and normalizes the transcript response", async () => {
+    const audioFile = await createTempAudioFile();
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new LipiMlSttAdapter({
+      baseUrl: "http://lipi-ml.test",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        return Response.json({ text: "Hello from remote STT", confidence: 0.77 });
+      },
+    });
+
+    await expect(adapter.transcribe({ wavPath: audioFile.path, language: "en" })).resolves.toEqual({
+      text: "Hello from remote STT",
+      confidence: 0.77,
+    });
+
+    expect(requests[0]?.url).toBe("http://lipi-ml.test/stt");
+    expect(requests[0]?.init?.method).toBe("POST");
+    expect(requests[0]?.init?.body).toBeInstanceOf(FormData);
+
+    await audioFile.cleanup();
+  });
+
+  it("posts text to lipi-ml TTS and returns base64 WAV audio", async () => {
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new LipiMlTtsAdapter({
+      baseUrl: "http://lipi-ml.test",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        return new Response(Buffer.from("wav-data"), {
+          headers: { "content-type": "audio/wav" },
+        });
+      },
+    });
+
+    await expect(adapter.synthesize({ text: "Namaste", voicePath: "voice_lipi_ml_ne" })).resolves.toEqual({
+      audioBase64: Buffer.from("wav-data").toString("base64"),
+      mimeType: "audio/wav",
+    });
+
+    expect(requests[0]?.url).toBe("http://lipi-ml.test/tts");
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ text: "Namaste", language: "ne" });
+  });
+
   it("reports whisper runtime_not_configured when paths are missing", async () => {
     const adapter = new WhisperCppAdapter({ binPath: "", modelPath: "" });
 
@@ -211,3 +310,14 @@ describe("runtime adapters", () => {
     });
   });
 });
+
+async function createTempAudioFile() {
+  const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-runtime-test-"));
+  const path = join(tempDir, "speech.wav");
+  await writeFile(path, Buffer.from("wav-data"));
+
+  return {
+    path,
+    cleanup: () => rm(tempDir, { recursive: true, force: true }),
+  };
+}

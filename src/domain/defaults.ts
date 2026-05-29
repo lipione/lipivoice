@@ -1,5 +1,12 @@
 import type { Agent, ModelAsset, ModelRuntime, Voice } from "./types";
 
+interface RemoteWorkspaceOptions {
+  now?: string;
+  vllmEndpoint: string;
+  vllmModel: string;
+  lipiMlEndpoint: string;
+}
+
 export function createDefaultWorkspace(now = new Date().toISOString()): {
   agents: Agent[];
   modelRuntimes: ModelRuntime[];
@@ -155,4 +162,180 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
       },
     ],
   };
+}
+
+export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
+  agents: Agent[];
+  modelRuntimes: ModelRuntime[];
+  modelAssets: ModelAsset[];
+  voices: Voice[];
+} {
+  const now = options.now ?? new Date().toISOString();
+  const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
+  const lipiMlEndpoint = trimTrailingSlash(options.lipiMlEndpoint);
+
+  return {
+    agents: [
+      {
+        id: "agent_reception",
+        name: "Reception Agent",
+        greeting: "Hi, this is LipiVoice. How can I help?",
+        systemPrompt: "Answer concisely, ask one question at a time, and collect the caller's name.",
+        language: "en",
+        modelRuntimeId: "runtime_vllm",
+        modelAssetId: "model_vllm_remote",
+        voiceId: "voice_lipi_ml_en",
+        transcriberRuntimeId: "runtime_lipi_ml_stt",
+        recordingEnabled: false,
+        interruptionSensitivity: "medium",
+        toolIds: [],
+        knowledgeBaseIds: [],
+        deploymentState: "ready",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    modelRuntimes: [
+      {
+        id: "runtime_vllm",
+        kind: "llm",
+        adapter: "vllm",
+        endpoint: vllmEndpoint,
+        configuredState: "configured",
+        healthStatus: "unknown",
+        defaultModelId: "model_vllm_remote",
+        concurrencyLimit: 2,
+        hardwareHints: ["remote", "gpu"],
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "runtime_lipi_ml_stt",
+        kind: "stt",
+        adapter: "faster_whisper",
+        endpoint: `${lipiMlEndpoint}/stt`,
+        configuredState: "configured",
+        healthStatus: "unknown",
+        defaultModelId: "model_lipi_ml_whisper_large_v3",
+        concurrencyLimit: 1,
+        hardwareHints: ["remote", "gpu"],
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "runtime_lipi_ml_tts",
+        kind: "tts",
+        adapter: "piper",
+        endpoint: `${lipiMlEndpoint}/tts`,
+        configuredState: "configured",
+        healthStatus: "unknown",
+        defaultModelId: "model_lipi_ml_piper",
+        concurrencyLimit: 2,
+        hardwareHints: ["remote", "cpu", "gpu"],
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "runtime_energy_vad",
+        kind: "vad",
+        adapter: "energy_vad",
+        endpoint: "local",
+        configuredState: "configured",
+        healthStatus: "healthy",
+        defaultModelId: "energy_threshold_v1",
+        concurrencyLimit: 4,
+        hardwareHints: ["cpu"],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    modelAssets: [
+      {
+        id: "model_vllm_remote",
+        runtimeId: "runtime_vllm",
+        name: options.vllmModel,
+        kind: "llm",
+        family: "gemma",
+        version: "remote",
+        pathOrTag: options.vllmModel,
+        license: "model license from installed remote asset",
+        parameterSize: "remote",
+        quantization: "provider default",
+        languageSupport: ["en", "ne"],
+        installedState: "installed",
+      },
+      {
+        id: "model_lipi_ml_whisper_large_v3",
+        runtimeId: "runtime_lipi_ml_stt",
+        name: "faster-whisper large-v3",
+        kind: "stt",
+        family: "whisper",
+        version: "large-v3",
+        pathOrTag: "lipi-ml:faster-whisper-large-v3",
+        license: "MIT",
+        parameterSize: "large",
+        quantization: "provider default",
+        languageSupport: ["en", "ne"],
+        installedState: "installed",
+      },
+      {
+        id: "model_lipi_ml_piper",
+        runtimeId: "runtime_lipi_ml_tts",
+        name: "Piper voices via lipi-ml",
+        kind: "tts",
+        family: "piper",
+        version: "remote",
+        pathOrTag: "lipi-ml:piper",
+        license: "Piper voice license",
+        parameterSize: "n/a",
+        quantization: "onnx",
+        languageSupport: ["en-US", "ne-NP"],
+        installedState: "installed",
+      },
+      {
+        id: "energy_threshold_v1",
+        runtimeId: "runtime_energy_vad",
+        name: "Energy threshold VAD",
+        kind: "vad",
+        family: "energy_vad",
+        version: "1",
+        pathOrTag: "local:energy-threshold-v1",
+        license: "MIT",
+        parameterSize: "n/a",
+        quantization: "n/a",
+        languageSupport: [],
+        installedState: "installed",
+      },
+    ],
+    voices: [
+      {
+        id: "voice_lipi_ml_en",
+        name: "Lipi ML English",
+        runtimeId: "runtime_lipi_ml_tts",
+        type: "builtin",
+        language: "en-US",
+        tags: ["remote", "piper", "english"],
+        previewUrl: "",
+        privacy: "workspace",
+        cloneStatus: "not_clone",
+        consentId: null,
+      },
+      {
+        id: "voice_lipi_ml_ne",
+        name: "Lipi ML Nepali",
+        runtimeId: "runtime_lipi_ml_tts",
+        type: "builtin",
+        language: "ne-NP",
+        tags: ["remote", "piper", "nepali"],
+        previewUrl: "",
+        privacy: "workspace",
+        cloneStatus: "not_clone",
+        consentId: null,
+      },
+    ],
+  };
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
 }
