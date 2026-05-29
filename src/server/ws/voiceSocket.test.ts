@@ -49,6 +49,20 @@ describe("voice socket", () => {
     expect(ws.readyState).toBe(WebSocket.CLOSED);
   });
 
+  it("allows lifecycle close to be called more than once", async () => {
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      checkReady: async () => ({ ready: true }),
+      processAudio: async () => ({ events: [] }),
+    });
+
+    await listen();
+
+    await expect(voiceSocket.close()).resolves.toBeUndefined();
+    await expect(voiceSocket.close()).resolves.toBeUndefined();
+    await closeServer();
+  });
+
   it("returns invalid_message for malformed JSON", async () => {
     server = createServer();
     voiceSocket = attachVoiceSocket(server, {
@@ -60,6 +74,21 @@ describe("voice socket", () => {
     const ws = connect("/api/realtime");
     await waitForOpen(ws);
     ws.send("{");
+
+    await expect(readJsonMessage(ws)).resolves.toEqual({ type: "error", reason: "invalid_message" });
+  });
+
+  it("returns invalid_message for structurally invalid JSON", async () => {
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      checkReady: async () => ({ ready: true }),
+      processAudio: async () => ({ events: [] }),
+    });
+
+    await listen();
+    const ws = connect("/api/realtime");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm" }));
 
     await expect(readJsonMessage(ws)).resolves.toEqual({ type: "error", reason: "invalid_message" });
   });
