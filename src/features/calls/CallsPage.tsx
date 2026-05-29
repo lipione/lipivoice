@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Clock, ListChecks } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Clock, ListChecks, MessageSquareText } from "lucide-react";
 
 import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
@@ -8,14 +8,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { Call, CallEvent } from "@/domain/types";
 import { cn } from "@/lib/utils";
 
-type CallRecord = Pick<Call, "id" | "channel" | "status"> &
-  Partial<Pick<Call, "durationSeconds" | "failureReason">>;
+type CallRecord = Call;
 
 function formatDuration(seconds: number | null | undefined) {
   return `${seconds ?? 0}s`;
 }
 
-function formatPayload(payload: Record<string, unknown>) {
+function formatMoney(value: number | null | undefined) {
+  return `$${(value ?? 0).toFixed(2)}`;
+}
+
+function formatPayload(payload: Record<string, unknown> | undefined) {
+  if (!payload) return "No event payload";
+
+  const name = payload.name;
+  if (typeof name === "string") return name;
+
   const code = payload.code;
   if (typeof code === "string") return code;
 
@@ -50,6 +58,9 @@ export function CallsPage() {
         if (!isCurrent) return;
 
         setCalls(nextCalls);
+        if (nextCalls[0]) {
+          void selectCall(nextCalls[0].id);
+        }
       } catch (error) {
         if (!isCurrent) return;
 
@@ -67,6 +78,13 @@ export function CallsPage() {
       isCurrent = false;
     };
   }, []);
+
+  const selectedCall = useMemo(
+    () => calls.find((call) => call.id === selectedCallId) ?? null,
+    [calls, selectedCallId],
+  );
+  const transcriptEvents = events.filter((event) => event.type === "transcript");
+  const debugEvents = events.filter((event) => event.type !== "transcript");
 
   async function selectCall(callId: string) {
     const requestId = eventRequestIdRef.current + 1;
@@ -134,7 +152,7 @@ export function CallsPage() {
         <Badge variant="outline">{calls.length} recorded</Badge>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
         <Card>
           <CardHeader>
             <CardTitle>Records</CardTitle>
@@ -176,35 +194,78 @@ export function CallsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Timeline</CardTitle>
-            <CardDescription>{selectedCallId ? selectedCallId : "Select a call"}</CardDescription>
+            <CardTitle>Call detail</CardTitle>
+            <CardDescription>{selectedCall ? "Selected call" : "Select a call"}</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            {!selectedCallId ? (
+          <CardContent className="grid gap-4">
+            {!selectedCall ? (
               <p className="text-sm text-muted-foreground">Select a call to load events.</p>
-            ) : isLoadingEvents ? (
-              <p className="text-sm text-muted-foreground">Loading events...</p>
-            ) : eventsError ? (
-              <Badge variant="danger">{eventsError}</Badge>
-            ) : events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No events recorded.</p>
             ) : (
-              events.map((event) => (
-                <div key={event.id} className="grid gap-1 border-l border-border pl-3 text-sm">
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2 font-medium">
-                      <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span className="truncate">{event.type}</span>
+              <>
+                <div className="grid gap-2 rounded-md border border-border p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{selectedCall.direction} {selectedCall.channel}</span>
+                    <Badge variant={selectedCall.status === "failed" ? "danger" : "outline"}>
+                      Status
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <span>Duration {formatDuration(selectedCall.durationSeconds)}</span>
+                    <span>
+                      Estimate <span>{formatMoney(selectedCall.costEstimateUsd)}</span>
                     </span>
-                    <Badge variant={event.severity === "error" ? "danger" : "outline"}>{event.actor}</Badge>
+                    <span>Started {selectedCall.startedAt}</span>
+                    <span>Ended {selectedCall.endedAt ?? "open"}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>{event.timestamp}</span>
-                  </div>
-                  <p className="break-words text-sm text-muted-foreground">{formatPayload(event.payload)}</p>
                 </div>
-              ))
+
+                {isLoadingEvents ? (
+                  <p className="text-sm text-muted-foreground">Loading events...</p>
+                ) : eventsError ? (
+                  <Badge variant="danger">{eventsError}</Badge>
+                ) : events.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No events recorded.</p>
+                ) : (
+                  <>
+                    <div className="grid gap-2">
+                      <h3 className="text-sm font-semibold tracking-normal">Transcript</h3>
+                      {transcriptEvents.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No transcript segments yet.</p>
+                      ) : (
+                        transcriptEvents.map((event) => (
+                          <div key={event.id} className="rounded-md border border-border p-3 text-sm">
+                            <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                              <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span>{event.actor}</span>
+                            </div>
+                            <p>{formatPayload(event.payload)}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="grid gap-2">
+                      <h3 className="text-sm font-semibold tracking-normal">Event timeline</h3>
+                      {debugEvents.map((event) => (
+                        <div key={event.id} className="grid gap-1 border-l border-border pl-3 text-sm">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-2 font-medium">
+                              <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                              <span className="truncate">{event.type}</span>
+                            </span>
+                            <Badge variant={event.severity === "error" ? "danger" : "outline"}>{event.actor}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>{event.timestamp}</span>
+                          </div>
+                          <p className="break-words text-sm text-muted-foreground">{formatPayload(event.payload)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

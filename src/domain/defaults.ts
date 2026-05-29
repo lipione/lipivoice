@@ -1,4 +1,4 @@
-import type { Agent, ModelAsset, ModelRuntime, Voice } from "./types";
+import type { Agent, ModelAsset, ModelRuntime, Tool, Voice } from "./types";
 
 interface RemoteWorkspaceOptions {
   now?: string;
@@ -12,6 +12,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   modelRuntimes: ModelRuntime[];
   modelAssets: ModelAsset[];
   voices: Voice[];
+  tools: Tool[];
 } {
   return {
     agents: [
@@ -161,6 +162,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
         consentId: null,
       },
     ],
+    tools: createSeedTools(now),
   };
 }
 
@@ -169,6 +171,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   modelRuntimes: ModelRuntime[];
   modelAssets: ModelAsset[];
   voices: Voice[];
+  tools: Tool[];
 } {
   const now = options.now ?? new Date().toISOString();
   const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
@@ -333,7 +336,28 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
         consentId: null,
       },
     ],
+    tools: createSeedTools(now),
   };
+}
+
+function createSeedTools(now: string): Tool[] {
+  return [
+    {
+      id: "tool_order_lookup",
+      name: "Order lookup",
+      description: "Look up an order status from a backend API.",
+      method: "GET",
+      url: "https://example.com/orders/{orderId}",
+      authMode: "none",
+      headers: [],
+      parameters: [{ name: "orderId", type: "string", required: true }],
+      timeoutMs: 5000,
+      retryCount: 0,
+      responseSchema: "{\"status\":\"string\",\"eta\":\"string\"}",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
 }
 
 function trimTrailingSlash(value: string): string {

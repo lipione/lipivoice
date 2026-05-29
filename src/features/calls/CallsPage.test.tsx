@@ -9,7 +9,13 @@ const calls = [
     id: "call_1",
     status: "failed",
     channel: "web",
+    direction: "inbound",
+    agentId: "agent_1",
+    startedAt: "2026-05-29T00:00:00.000Z",
+    endedAt: "2026-05-29T00:00:12.000Z",
     durationSeconds: 12,
+    costEstimateUsd: 0.02,
+    recordingUrl: null,
     failureReason: "runtime_not_configured",
   },
 ];
@@ -69,6 +75,46 @@ describe("CallsPage", () => {
 
     await waitFor(() => expect(screen.getAllByText("runtime_not_configured")).toHaveLength(2));
     expect(screen.getByText("system")).toBeInTheDocument();
+  });
+
+  it("selects the newest call and separates transcript from debug events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/api/calls/call_1/events")) {
+          return Response.json([
+            {
+              id: "event_user",
+              callId: "call_1",
+              timestamp: "2026-05-29T00:00:03.000Z",
+              type: "transcript",
+              actor: "user",
+              severity: "info",
+              payload: { text: "I need order help" },
+            },
+            {
+              id: "event_tool",
+              callId: "call_1",
+              timestamp: "2026-05-29T00:00:04.000Z",
+              type: "tool_call",
+              actor: "tool",
+              severity: "info",
+              payload: { name: "Order lookup" },
+            },
+          ]);
+        }
+
+        return Response.json(calls);
+      }),
+    );
+
+    render(<CallsPage />);
+
+    expect(await screen.findByText("Call detail")).toBeInTheDocument();
+    expect(screen.getByText("inbound web")).toBeInTheDocument();
+    expect(screen.getByText("$0.02")).toBeInTheDocument();
+    expect(await screen.findByText("I need order help")).toBeInTheDocument();
+    expect(screen.getByText("Order lookup")).toBeInTheDocument();
   });
 
   it("ignores stale event responses after selecting another call", async () => {

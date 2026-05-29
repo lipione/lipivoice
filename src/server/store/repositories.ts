@@ -45,6 +45,11 @@ export interface Repositories {
     list(): Voice[];
     get(id: string): Voice | null;
   };
+  tools: {
+    list(): Tool[];
+    get(id: string): Tool | null;
+    save(tool: Tool): Tool;
+  };
   calls: {
     list(): Call[];
     get(id: string): Call | null;
@@ -81,6 +86,11 @@ export function createRepositories(db: DatabaseConnection): Repositories {
     voices: {
       list: voices.list,
       get: voices.get,
+    },
+    tools: {
+      list: tools.list,
+      get: tools.get,
+      save: tools.save,
     },
     calls: {
       list: calls.list,

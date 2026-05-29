@@ -5,6 +5,7 @@ import { AgentsPage } from "@/features/agents/AgentsPage";
 import { CallsPage } from "@/features/calls/CallsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
+import { ToolsPage } from "@/features/tools/ToolsPage";
 import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
 import { VoiceConsolePage } from "@/features/voice/VoiceConsolePage";
 
@@ -22,6 +23,8 @@ export function App() {
         <VoiceConsolePage />
       ) : activePage === "calls" ? (
         <CallsPage />
+      ) : activePage === "tools" ? (
+        <ToolsPage />
       ) : activePage === "voice-lab" ? (
         <VoiceLabPage />
       ) : (

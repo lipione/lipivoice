@@ -56,6 +56,50 @@ describe("server app", () => {
     expect(response.body.events[0].payload.status).toBe("connected");
   });
 
+  it("returns seeded tool definitions", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app).get("/api/tools").expect(200);
+
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        id: "tool_order_lookup",
+        method: "GET",
+        name: "Order lookup",
+      }),
+    ]);
+  });
+
+  it("saves valid tool definitions and rejects invalid tools", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+    const validTool = {
+      id: "tool_schedule_demo",
+      name: "Schedule demo",
+      description: "Book a demo call from the assistant.",
+      method: "POST",
+      url: "https://example.com/demo",
+      authMode: "bearer",
+      headers: [{ name: "authorization", value: "secret", secret: true }],
+      parameters: [{ name: "email", type: "string", required: true }],
+      timeoutMs: 8000,
+      retryCount: 1,
+      responseSchema: "{\"ok\": true}",
+      createdAt: "2026-05-29T00:00:00.000Z",
+      updatedAt: "2026-05-29T00:00:00.000Z",
+    };
+
+    const saved = await request(app).post("/api/tools").send(validTool).expect(200);
+    const invalid = await request(app)
+      .post("/api/tools")
+      .send({ ...validTool, id: "", url: "not-a-url" })
+      .expect(400);
+    const tools = await request(app).get("/api/tools").expect(200);
+
+    expect(saved.body).toMatchObject({ id: "tool_schedule_demo", name: "Schedule demo" });
+    expect(invalid.body).toEqual({ code: "invalid_tool" });
+    expect(tools.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "tool_schedule_demo" })]));
+  });
+
   it("exposes a context close hook", () => {
     const context = createAppContextForTest(
       createDefaultWorkspace("2026-05-29T00:00:00.000Z"),

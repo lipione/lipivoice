@@ -3,7 +3,7 @@ import { join } from "node:path";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
-import { agentSchema } from "@/domain/schemas";
+import { agentSchema, toolSchema } from "@/domain/schemas";
 import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
@@ -105,6 +105,25 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
 
     response.json(repositories.agents.save(result.data));
+  });
+
+  app.get("/api/voices", (_request, response) => {
+    response.json(repositories.voices.list());
+  });
+
+  app.get("/api/tools", (_request, response) => {
+    response.json(repositories.tools.list());
+  });
+
+  app.post("/api/tools", (request, response) => {
+    const result = toolSchema.safeParse(request.body);
+
+    if (!result.success) {
+      response.status(400).json({ code: "invalid_tool" });
+      return;
+    }
+
+    response.json(repositories.tools.save(result.data));
   });
 
   app.get("/api/model-runtimes", async (_request, response, next) => {
