@@ -154,4 +154,76 @@ describe("voice socket dependencies", () => {
 
     repositories.close();
   });
+
+  it("persists realtime call sessions and sanitizes stored audio events", async () => {
+    const repositories = createRepositories(createDatabase(":memory:"));
+    repositories.seedWorkspace(
+      createRemoteWorkspace({
+        now: "2026-05-29T00:00:00.000Z",
+        vllmEndpoint: "http://127.0.0.1:8002/v1",
+        vllmModel: "gemma-4",
+        lipiMlEndpoint: "http://127.0.0.1:5001",
+      }),
+    );
+    const dates = [
+      new Date("2026-05-29T00:00:00.000Z"),
+      new Date("2026-05-29T00:00:01.000Z"),
+      new Date("2026-05-29T00:00:02.000Z"),
+      new Date("2026-05-29T00:00:12.000Z"),
+    ];
+    const deps = createVoiceSocketDeps({
+      config: loadServerConfig({ LIPIVOICE_RUNTIME_PRESET: "remote" }),
+      repositories,
+      runtimes: {
+        llm: { health: async () => ({ status: "healthy", reason: null }), chat: async () => "unused" },
+        stt: {
+          health: async () => ({ status: "healthy", reason: null }),
+          transcribe: async () => ({ text: "unused", confidence: null }),
+        },
+        tts: {
+          health: async () => ({ status: "healthy", reason: null }),
+          synthesize: async () => ({ audioBase64: "unused", mimeType: "audio/wav" }),
+        },
+      },
+      now: () => dates.shift() ?? new Date("2026-05-29T00:00:12.000Z"),
+    });
+
+    const session = await deps.createCallSession?.();
+    await session?.record({ type: "transcript", actor: "user", payload: { text: "hello" }, severity: "info" });
+    await session?.record({
+      type: "audio",
+      actor: "assistant",
+      payload: { mimeType: "audio/wav", audioBase64: "UklGRg==" },
+      severity: "info",
+    });
+    await session?.finish({ status: "disconnected", failureReason: null });
+
+    const [call] = repositories.calls.list();
+    expect(call).toMatchObject({
+      channel: "web",
+      direction: "inbound",
+      status: "disconnected",
+      startedAt: "2026-05-29T00:00:00.000Z",
+      endedAt: "2026-05-29T00:00:12.000Z",
+      durationSeconds: 12,
+      failureReason: null,
+    });
+    expect(repositories.callEvents.listForCall(call.id).map((event) => ({
+      type: event.type,
+      actor: event.actor,
+      payload: event.payload,
+      severity: event.severity,
+    }))).toEqual([
+      { type: "status", actor: "system", payload: { status: "connected" }, severity: "info" },
+      { type: "transcript", actor: "user", payload: { text: "hello" }, severity: "info" },
+      {
+        type: "audio",
+        actor: "assistant",
+        payload: { mimeType: "audio/wav", audioBytes: 4 },
+        severity: "info",
+      },
+    ]);
+
+    repositories.close();
+  });
 });

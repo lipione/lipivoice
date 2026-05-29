@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
-import { attachVoiceSocket, type VoiceSocketLifecycle } from "./voiceSocket";
+import { attachVoiceSocket, type VoiceSocketLifecycle, type VoiceSocketRecordedEvent } from "./voiceSocket";
 
 let server: ReturnType<typeof createServer> | null = null;
 let voiceSocket: VoiceSocketLifecycle | null = null;
@@ -119,6 +119,54 @@ describe("voice socket", () => {
     ]);
   });
 
+  it("records realtime statuses and returned events when a call session is available", async () => {
+    const recordedEvents: VoiceSocketRecordedEvent[] = [];
+    const finishedCalls: Array<Record<string, unknown>> = [];
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      checkReady: async () => ({ ready: true }),
+      createCallSession: async () => ({
+        record: async (event) => {
+          recordedEvents.push(event);
+        },
+        finish: async (input) => {
+          finishedCalls.push(input);
+        },
+      }),
+      processAudio: async () => ({
+        events: [
+          { type: "transcript", actor: "user", payload: { text: "hello" } },
+          { type: "audio", actor: "assistant", payload: { mimeType: "audio/wav", audioBase64: "out" } },
+        ],
+      }),
+    });
+
+    await listen();
+    const ws = connect("/api/realtime");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm", audioBase64: "in" }));
+    await readJsonMessages(ws, 5);
+
+    const closed = waitForClose(ws);
+    ws.close();
+    await closed;
+    await waitUntil(() => finishedCalls.length === 1);
+
+    expect(recordedEvents).toEqual([
+      { type: "status", actor: "system", payload: { status: "listening" }, severity: "info" },
+      { type: "status", actor: "system", payload: { status: "thinking" }, severity: "info" },
+      { type: "status", actor: "system", payload: { status: "speaking" }, severity: "info" },
+      { type: "transcript", actor: "user", payload: { text: "hello" }, severity: "info" },
+      {
+        type: "audio",
+        actor: "assistant",
+        payload: { mimeType: "audio/wav", audioBase64: "out" },
+        severity: "info",
+      },
+    ]);
+    expect(finishedCalls).toEqual([{ status: "disconnected", failureReason: null }]);
+  });
+
   it("emits failed when audio processing throws", async () => {
     server = createServer();
     voiceSocket = attachVoiceSocket(server, {
@@ -138,6 +186,45 @@ describe("voice socket", () => {
       { type: "status", status: "thinking" },
       { type: "status", status: "failed", reason: "processing_failed" },
     ]);
+  });
+
+  it("records failed processing and finishes the call as failed", async () => {
+    const recordedEvents: VoiceSocketRecordedEvent[] = [];
+    const finishedCalls: Array<Record<string, unknown>> = [];
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      checkReady: async () => ({ ready: true }),
+      createCallSession: async () => ({
+        record: async (event) => {
+          recordedEvents.push(event);
+        },
+        finish: async (input) => {
+          finishedCalls.push(input);
+        },
+      }),
+      processAudio: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    await listen();
+    const ws = connect("/api/realtime");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm", audioBase64: "in" }));
+
+    await readJsonMessages(ws, 3);
+
+    expect(recordedEvents).toEqual([
+      { type: "status", actor: "system", payload: { status: "listening" }, severity: "info" },
+      { type: "status", actor: "system", payload: { status: "thinking" }, severity: "info" },
+      {
+        type: "status",
+        actor: "system",
+        payload: { status: "failed", reason: "processing_failed" },
+        severity: "error",
+      },
+    ]);
+    expect(finishedCalls).toEqual([{ status: "failed", failureReason: "processing_failed" }]);
   });
 
   it("rejects websocket upgrades outside realtime path", async () => {
@@ -281,4 +368,17 @@ function withTimeout<T>(promise: Promise<T>) {
       setTimeout(() => reject(new Error("timed out waiting for websocket test event")), 500);
     }),
   ]);
+}
+
+function waitUntil(predicate: () => boolean) {
+  return withTimeout(
+    new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        if (predicate()) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 1);
+    }),
+  );
 }

@@ -6,8 +6,30 @@ import WebSocket, { WebSocketServer, type RawData } from "ws";
 export interface VoiceSocketDeps {
   checkReady(): Promise<{ ready: true } | { ready: false; reason: string }>;
   processAudio(input: { mimeType: string; audioBase64: string }): Promise<{
-    events: Array<{ type: string; actor?: string; payload?: unknown }>;
+    events: VoiceSocketEvent[];
   }>;
+  createCallSession?(): Promise<VoiceSocketCallSession | null>;
+}
+
+export type VoiceSocketEvent = {
+  type: string;
+  actor?: string;
+  payload?: unknown;
+  severity?: EventSeverity;
+};
+
+export type EventSeverity = "info" | "warning" | "error";
+
+export interface VoiceSocketRecordedEvent {
+  type: string;
+  actor: "system" | "user" | "assistant" | "tool";
+  payload: Record<string, unknown>;
+  severity: EventSeverity;
+}
+
+export interface VoiceSocketCallSession {
+  record(event: VoiceSocketRecordedEvent): Promise<void> | void;
+  finish(input: { status: string; failureReason: string | null }): Promise<void> | void;
 }
 
 interface AudioChunkMessage {
@@ -44,16 +66,50 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
 
   socketServer.on("connection", (webSocket) => {
     clients.add(webSocket);
+    let callSession: VoiceSocketCallSession | null = null;
+    let callFinished = false;
+    let socketClosed = false;
+    function recordEvent(event: VoiceSocketRecordedEvent) {
+      if (!callSession || callFinished) {
+        return;
+      }
+
+      void Promise.resolve(callSession.record(event)).catch(() => undefined);
+    }
+
+    async function finishCall(input: { status: string; failureReason: string | null }) {
+      if (!callSession || callFinished) {
+        return;
+      }
+
+      callFinished = true;
+      try {
+        await callSession.finish(input);
+      } catch {
+        // Recording must not break realtime socket cleanup.
+      }
+    }
+
     webSocket.once("close", () => {
       clients.delete(webSocket);
+      socketClosed = true;
+      void finishCall({ status: "disconnected", failureReason: null });
     });
 
     let processing = false;
     const ready = deps.checkReady().then(
-      (result) => {
+      async (result) => {
         if (!result.ready) {
           sendJson(webSocket, { type: "status", status: "failed", reason: result.reason });
           closeAfterSend(webSocket);
+          return result;
+        }
+
+        if (deps.createCallSession) {
+          callSession = await deps.createCallSession().catch(() => null);
+          if (socketClosed) {
+            await finishCall({ status: "disconnected", failureReason: null });
+          }
         }
 
         return result;
@@ -71,6 +127,8 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
         setProcessing(value) {
           processing = value;
         },
+        recordEvent,
+        finishCall,
       });
     });
   });
@@ -119,12 +177,18 @@ async function handleMessage(
   deps: VoiceSocketDeps,
   ready: Promise<{ ready: true } | { ready: false; reason: string }>,
   data: RawData,
-  state: { isProcessing(): boolean; setProcessing(value: boolean): void },
+  state: {
+    isProcessing(): boolean;
+    setProcessing(value: boolean): void;
+    recordEvent(event: VoiceSocketRecordedEvent): void;
+    finishCall(input: { status: string; failureReason: string | null }): Promise<void>;
+  },
 ) {
   const message = parseClientMessage(data);
 
   if (!message) {
     sendJson(webSocket, { type: "error", reason: "invalid_message" });
+    state.recordEvent(recordedError("invalid_message"));
     return;
   }
 
@@ -135,21 +199,24 @@ async function handleMessage(
 
   if (state.isProcessing()) {
     sendJson(webSocket, { type: "error", reason: "processing_in_progress" });
+    state.recordEvent(recordedError("processing_in_progress"));
     return;
   }
 
   state.setProcessing(true);
   try {
-    sendJson(webSocket, { type: "status", status: "listening" });
-    sendJson(webSocket, { type: "status", status: "thinking" });
+    sendStatus(webSocket, state.recordEvent, "listening");
+    sendStatus(webSocket, state.recordEvent, "thinking");
     const result = await deps.processAudio({ mimeType: message.mimeType, audioBase64: message.audioBase64 });
-    sendJson(webSocket, { type: "status", status: "speaking" });
+    sendStatus(webSocket, state.recordEvent, "speaking");
 
     for (const event of result.events) {
       sendJson(webSocket, event);
+      state.recordEvent(recordedEvent(event));
     }
   } catch {
-    sendJson(webSocket, { type: "status", status: "failed", reason: "processing_failed" });
+    sendStatus(webSocket, state.recordEvent, "failed", "processing_failed");
+    await state.finishCall({ status: "failed", failureReason: "processing_failed" });
   } finally {
     state.setProcessing(false);
   }
@@ -186,6 +253,81 @@ function sendJson(webSocket: WebSocket, value: unknown) {
   if (webSocket.readyState === WebSocket.OPEN) {
     webSocket.send(JSON.stringify(value));
   }
+}
+
+function sendStatus(
+  webSocket: WebSocket,
+  recordEvent: (event: VoiceSocketRecordedEvent) => void,
+  status: string,
+  reason?: string,
+) {
+  sendJson(webSocket, reason ? { type: "status", status, reason } : { type: "status", status });
+  recordEvent(recordedStatus(status, reason));
+}
+
+function recordedStatus(status: string, reason?: string): VoiceSocketRecordedEvent {
+  return {
+    type: "status",
+    actor: "system",
+    payload: reason ? { status, reason } : { status },
+    severity: status === "failed" ? "error" : "info",
+  };
+}
+
+function recordedError(reason: string): VoiceSocketRecordedEvent {
+  return {
+    type: "error",
+    actor: "system",
+    payload: { reason },
+    severity: "error",
+  };
+}
+
+function recordedEvent(event: VoiceSocketEvent): VoiceSocketRecordedEvent {
+  const payload = payloadRecord(event.payload);
+
+  return {
+    type: event.type,
+    actor: actorForEvent(event.actor),
+    payload,
+    severity: event.severity ?? severityForEvent(event.type, payload),
+  };
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  if (isRecord(payload)) {
+    return payload;
+  }
+
+  if (payload === undefined) {
+    return {};
+  }
+
+  return { value: payload };
+}
+
+function actorForEvent(actor: string | undefined): VoiceSocketRecordedEvent["actor"] {
+  if (actor === "user" || actor === "assistant" || actor === "tool" || actor === "system") {
+    return actor;
+  }
+
+  return "system";
+}
+
+function severityForEvent(type: string, payload: Record<string, unknown>): EventSeverity {
+  if (type === "error") {
+    return "error";
+  }
+
+  if (type === "tool_call" && payload.ok === false) {
+    return "error";
+  }
+
+  return "info";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function closeAfterSend(webSocket: WebSocket) {
