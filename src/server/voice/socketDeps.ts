@@ -11,6 +11,7 @@ import { WhisperCppAdapter } from "@/server/runtimes/whisperCpp";
 import type { Repositories } from "@/server/store/repositories";
 import type { VoiceSocketDeps } from "@/server/ws/voiceSocket";
 import { writeWebmToWav } from "@/server/audio/wav";
+import { executeTool } from "@/server/tools/executor";
 import { runVoiceTurn } from "./pipeline";
 
 interface RuntimeAdapters {
@@ -29,6 +30,7 @@ interface CreateVoiceSocketDepsOptions {
   repositories: Repositories;
   runtimes?: RuntimeAdapters;
   writeAudioChunkToWav?: (input: { mimeType: string; audioBase64: string }) => Promise<WavFile>;
+  toolFetch?: typeof fetch;
 }
 
 export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): VoiceSocketDeps {
@@ -51,6 +53,9 @@ export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): Vo
       if (!agent) {
         throw new Error("No voice agent is configured");
       }
+      const tools = options.repositories.tools
+        .list()
+        .filter((tool) => agent.toolIds.includes(tool.id));
 
       const wav = await writeAudioChunkToWav(input);
       try {
@@ -62,6 +67,8 @@ export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): Vo
           llm: runtimes.llm,
           tts: runtimes.tts,
           history,
+          tools,
+          toolExecutor: (tool, args) => executeTool(tool, args, { fetchImpl: options.toolFetch }),
         });
 
         history.push(

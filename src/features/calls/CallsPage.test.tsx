@@ -99,7 +99,7 @@ describe("CallsPage", () => {
               type: "tool_call",
               actor: "tool",
               severity: "info",
-              payload: { name: "Order lookup" },
+              payload: { toolName: "Order lookup" },
             },
           ]);
         }

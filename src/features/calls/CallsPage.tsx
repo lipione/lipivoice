@@ -21,6 +21,9 @@ function formatMoney(value: number | null | undefined) {
 function formatPayload(payload: Record<string, unknown> | undefined) {
   if (!payload) return "No event payload";
 
+  const toolName = payload.toolName;
+  if (typeof toolName === "string") return toolName;
+
   const name = payload.name;
   if (typeof name === "string") return name;
 

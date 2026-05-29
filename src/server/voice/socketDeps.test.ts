@@ -63,6 +63,67 @@ describe("voice socket dependencies", () => {
     repositories.close();
   });
 
+  it("passes assigned agent tools into the remote voice turn", async () => {
+    const repositories = createRepositories(createDatabase(":memory:"));
+    repositories.seedWorkspace(
+      createRemoteWorkspace({
+        now: "2026-05-29T00:00:00.000Z",
+        vllmEndpoint: "http://127.0.0.1:8002/v1",
+        vllmModel: "gemma-4",
+        lipiMlEndpoint: "http://127.0.0.1:5001",
+      }),
+    );
+    const agent = repositories.agents.list()[0];
+    repositories.agents.save({ ...agent, toolIds: ["tool_order_lookup"] });
+    const requestedUrls: string[] = [];
+    const deps = createVoiceSocketDeps({
+      config: loadServerConfig({ LIPIVOICE_RUNTIME_PRESET: "remote", VLLM_MODEL: "gemma-4" }),
+      repositories,
+      runtimes: {
+        llm: {
+          health: async () => ({ status: "healthy", reason: null }),
+          chat: async (input) =>
+            input.messages.some((message) => message.content.includes("Tool result"))
+              ? "Order A123 arrives Friday."
+              : 'TOOL_CALL {"toolId":"tool_order_lookup","arguments":{"orderId":"A123"}}',
+        },
+        stt: {
+          health: async () => ({ status: "healthy", reason: null }),
+          transcribe: async () => ({ text: "Track order A123", confidence: 0.9 }),
+        },
+        tts: {
+          health: async () => ({ status: "healthy", reason: null }),
+          synthesize: async () => ({ audioBase64: "UklGRg==", mimeType: "audio/wav" }),
+        },
+      },
+      writeAudioChunkToWav: async () => ({ wavPath: "/tmp/remote-turn.wav", cleanup: async () => undefined }),
+      toolFetch: async (url) => {
+        requestedUrls.push(String(url));
+        return Response.json({ status: "in_transit", eta: "Friday" });
+      },
+    });
+
+    const result = await deps.processAudio({ mimeType: "audio/webm", audioBase64: "aW4=" });
+
+    expect(requestedUrls).toEqual(["https://example.com/orders/A123"]);
+    expect(result.events).toEqual([
+      { type: "transcript", actor: "user", payload: { text: "Track order A123", confidence: 0.9 } },
+      {
+        type: "tool_call",
+        actor: "tool",
+        payload: expect.objectContaining({
+          toolId: "tool_order_lookup",
+          ok: true,
+          status: 200,
+        }),
+      },
+      { type: "transcript", actor: "assistant", payload: { text: "Order A123 arrives Friday." } },
+      { type: "audio", actor: "assistant", payload: { audioBase64: "UklGRg==", mimeType: "audio/wav" } },
+    ]);
+
+    repositories.close();
+  });
+
   it("reports runtime_not_configured when any remote runtime is unhealthy", async () => {
     const repositories = createRepositories(createDatabase(":memory:"));
     repositories.seedWorkspace(

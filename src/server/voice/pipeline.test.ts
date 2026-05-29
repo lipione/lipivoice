@@ -125,4 +125,95 @@ describe("voice pipeline", () => {
     expect(llmCalls).toBe(0);
     expect(ttsCalls).toBe(0);
   });
+
+  it("executes an assigned tool request before asking for the final answer", async () => {
+    const llmCalls: Array<{
+      system: string;
+      messages: Array<{ role: "user" | "assistant"; content: string }>;
+    }> = [];
+    const toolCalls: Array<{ toolId: string; arguments: Record<string, unknown> }> = [];
+
+    const result = await runVoiceTurn({
+      agent: {
+        greeting: "Hi",
+        systemPrompt: "Be concise.",
+        language: "en",
+        modelAssetId: "model_llama32_3b",
+        voiceId: "voice_piper_amy",
+        toolIds: ["tool_order_lookup"],
+      },
+      model: "llama3.2:3b",
+      audioWavPath: "/tmp/input.wav",
+      stt: {
+        transcribe: async () => ({ text: "Where is order A123?", confidence: 0.88 }),
+      },
+      llm: {
+        chat: async (args) => {
+          llmCalls.push({ system: args.system, messages: args.messages });
+          return llmCalls.length === 1
+            ? 'TOOL_CALL {"toolId":"tool_order_lookup","arguments":{"orderId":"A123"}}'
+            : "Order A123 is in transit and arrives Friday.";
+        },
+      },
+      tts: {
+        synthesize: async (args) => ({ audioBase64: Buffer.from(args.text).toString("base64"), mimeType: "audio/wav" }),
+      },
+      history: [],
+      tools: [
+        {
+          id: "tool_order_lookup",
+          name: "Order lookup",
+          description: "Find order status.",
+          method: "GET",
+          url: "https://example.com/orders/{orderId}",
+          authMode: "none",
+          headers: [],
+          parameters: [{ name: "orderId", type: "string", required: true }],
+          timeoutMs: 5000,
+          retryCount: 0,
+          responseSchema: "{}",
+          createdAt: "2026-05-29T00:00:00.000Z",
+          updatedAt: "2026-05-29T00:00:00.000Z",
+        },
+      ],
+      toolExecutor: async (tool, args) => {
+        toolCalls.push({ toolId: tool.id, arguments: args });
+        return {
+          toolId: tool.id,
+          toolName: tool.name,
+          ok: true,
+          status: 200,
+          durationMs: 12,
+          request: {
+            method: "GET",
+            url: "https://example.com/orders/A123",
+            headers: [],
+          },
+          response: { body: "{\"status\":\"in_transit\",\"eta\":\"Friday\"}" },
+        };
+      },
+    });
+
+    expect(toolCalls).toEqual([{ toolId: "tool_order_lookup", arguments: { orderId: "A123" } }]);
+    expect(llmCalls).toHaveLength(2);
+    expect(llmCalls[0].system).toContain("Order lookup");
+    expect(llmCalls[1].messages.at(-1)?.content).toContain("in_transit");
+    expect(result.assistantText).toBe("Order A123 is in transit and arrives Friday.");
+    expect(result.events.map((event) => event.type)).toEqual([
+      "transcript",
+      "tool_call",
+      "transcript",
+      "audio",
+    ]);
+    expect(result.events[1]).toEqual({
+      type: "tool_call",
+      actor: "tool",
+      payload: expect.objectContaining({
+        toolId: "tool_order_lookup",
+        arguments: { orderId: "A123" },
+        ok: true,
+        status: 200,
+      }),
+    });
+  });
 });
