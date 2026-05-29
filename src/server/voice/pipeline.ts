@@ -13,6 +13,7 @@ interface VoicePipelineMessage {
 
 interface VoicePipelineInput {
   agent: VoicePipelineAgent;
+  model: string;
   audioWavPath: string;
   stt: {
     transcribe(args: { wavPath: string; language: string }): Promise<{ text: string; confidence: number | null }>;
@@ -37,7 +38,7 @@ export async function runVoiceTurn(input: VoicePipelineInput) {
   }
 
   const assistantText = await input.llm.chat({
-    model: input.agent.modelAssetId,
+    model: input.model,
     system: input.agent.systemPrompt,
     messages: [...input.history, { role: "user", content: transcription.text }],
   });
