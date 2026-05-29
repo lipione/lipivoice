@@ -50,6 +50,7 @@ export interface Repositories {
     append(input: Omit<CallEvent, "id">): CallEvent;
     listForCall(callId: string): CallEvent[];
   };
+  transaction<T>(fn: () => T): T;
   seedWorkspace(seed: ReturnType<typeof createDefaultWorkspace>): void;
   close(): void;
 }
@@ -109,6 +110,9 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           .all(callId)
           .map((row) => callEventSchema.parse(JSON.parse((row as StoredRow).data)));
       },
+    },
+    transaction<T>(fn: () => T): T {
+      return db.transaction(fn)();
     },
     seedWorkspace(seed) {
       const transaction = db.transaction(() => {

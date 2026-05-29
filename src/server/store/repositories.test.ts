@@ -242,4 +242,24 @@ describe("repositories", () => {
       }),
     ).toThrow();
   });
+
+  it("rolls back transaction writes when an operation fails", () => {
+    const agent = repos.agents.list()[0];
+
+    expect(() =>
+      repos.transaction(() => {
+        repos.calls.create({
+          channel: "simulation",
+          direction: "inbound",
+          agentId: agent.id,
+          status: "connected",
+          startedAt: "2026-05-29T00:00:01.000Z",
+        });
+
+        throw new Error("fail after call");
+      }),
+    ).toThrow("fail after call");
+
+    expect(repos.calls.list()).toHaveLength(0);
+  });
 });

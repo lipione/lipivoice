@@ -1,7 +1,8 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createDefaultWorkspace } from "@/domain/defaults";
-import { createAppForTest } from "./app";
+import { createAppContextForTest, createAppForTest } from "./app";
+import { loadServerConfig } from "./config";
 
 describe("server app", () => {
   it("returns seeded agents and runtimes", async () => {
@@ -28,4 +29,88 @@ describe("server app", () => {
     expect(response.body.call.status).toBe("connected");
     expect(response.body.events[0].payload.status).toBe("connected");
   });
+
+  it("exposes a context close hook", () => {
+    const context = createAppContextForTest(
+      createDefaultWorkspace("2026-05-29T00:00:00.000Z"),
+    );
+
+    expect(() => context.close()).not.toThrow();
+  });
+
+  it("returns invalid_json for malformed JSON", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app)
+      .post("/api/agents")
+      .set("Content-Type", "application/json")
+      .send("{")
+      .expect(400);
+
+    expect(response.body).toEqual({ code: "invalid_json" });
+  });
+
+  it("returns internal_error for unexpected errors", async () => {
+    const context = createAppContextForTest(
+      createDefaultWorkspace("2026-05-29T00:00:00.000Z"),
+    );
+    context.close();
+
+    const response = await request(context.app).get("/api/agents").expect(500);
+
+    expect(response.body).toEqual({ code: "internal_error" });
+  });
+
+  it("returns invalid_agent for invalid agent payloads", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app).post("/api/agents").send({ id: "" }).expect(400);
+
+    expect(response.body).toEqual({ code: "invalid_agent" });
+  });
+
+  it("returns agent_not_found for missing or unknown simulated call agents", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    await expectAgentNotFound(request(app).post("/api/calls/simulate").send({}));
+    await expectAgentNotFound(
+      request(app).post("/api/calls/simulate").send({ agentId: "missing_agent" }),
+    );
+  });
+
+  it("returns the initial event after simulating a call", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+    const agentId = (await request(app).get("/api/agents")).body[0].id;
+    const simulation = await request(app)
+      .post("/api/calls/simulate")
+      .send({ agentId })
+      .expect(201);
+
+    const events = await request(app).get(`/api/calls/${simulation.body.call.id}/events`).expect(200);
+
+    expect(events.body).toHaveLength(1);
+    expect(events.body[0].payload).toEqual({ status: "connected" });
+  });
+
+  it("returns call_not_found for missing call events", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app).get("/api/calls/missing_call/events").expect(404);
+
+    expect(response.body).toEqual({ code: "call_not_found" });
+  });
 });
+
+describe("server config", () => {
+  it("falls back to the default port for invalid port values", () => {
+    expect(loadServerConfig({ PORT: "nope" }).port).toBe(8787);
+    expect(loadServerConfig({ PORT: "0" }).port).toBe(8787);
+    expect(loadServerConfig({ PORT: "-1" }).port).toBe(8787);
+  });
+});
+
+async function expectAgentNotFound(requestPromise: request.Test) {
+  const response = await requestPromise.expect(404);
+
+  expect(response.body).toEqual({ code: "agent_not_found" });
+}

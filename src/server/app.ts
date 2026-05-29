@@ -1,5 +1,5 @@
 import cors from "cors";
-import express from "express";
+import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace } from "@/domain/defaults";
 import { agentSchema } from "@/domain/schemas";
 import { createDatabase } from "./store/database";
@@ -8,22 +8,33 @@ import type { ServerConfig } from "./config";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
 
+export interface AppContext {
+  app: express.Express;
+  repositories: Repositories;
+  close(): void;
+}
+
 export function createAppForTest(seed: WorkspaceSeed) {
+  return createAppContextForTest(seed).app;
+}
+
+export function createAppContextForTest(seed: WorkspaceSeed): AppContext {
   const repositories = createRepositories(createDatabase(":memory:"));
   repositories.seedWorkspace(seed);
 
-  return createAppWithRepositories(repositories);
+  return createAppContextWithRepositories(repositories);
 }
 
-export function createApp(config: ServerConfig) {
+export function createApp(config: ServerConfig): AppContext {
   const repositories = createRepositories(createDatabase(config.databasePath));
   repositories.seedWorkspace(createDefaultWorkspace());
 
-  return createAppWithRepositories(repositories);
+  return createAppContextWithRepositories(repositories);
 }
 
-function createAppWithRepositories(repositories: Repositories) {
+function createAppContextWithRepositories(repositories: Repositories): AppContext {
   const app = express();
+  let closed = false;
 
   app.use(cors());
   app.use(express.json());
@@ -71,25 +82,64 @@ function createAppWithRepositories(repositories: Repositories) {
       return;
     }
 
-    const now = new Date().toISOString();
-    const call = repositories.calls.create({
-      channel: "simulation",
-      direction: "inbound",
-      agentId: agent.id,
-      status: "connected",
-      startedAt: now,
-    });
-    const event = repositories.callEvents.append({
-      callId: call.id,
-      timestamp: now,
-      type: "status",
-      actor: "system",
-      payload: { status: "connected" },
-      severity: "info",
+    const result = repositories.transaction(() => {
+      const now = new Date().toISOString();
+      const call = repositories.calls.create({
+        channel: "simulation",
+        direction: "inbound",
+        agentId: agent.id,
+        status: "connected",
+        startedAt: now,
+      });
+      const event = repositories.callEvents.append({
+        callId: call.id,
+        timestamp: now,
+        type: "status",
+        actor: "system",
+        payload: { status: "connected" },
+        severity: "info",
+      });
+
+      return { call, events: [event] };
     });
 
-    response.status(201).json({ call, events: [event] });
+    response.status(201).json(result);
   });
 
-  return app;
+  app.use(createErrorMiddleware());
+
+  return {
+    app,
+    repositories,
+    close() {
+      if (closed) {
+        return;
+      }
+
+      repositories.close();
+      closed = true;
+    },
+  };
+}
+
+function createErrorMiddleware(): ErrorRequestHandler {
+  return (error, _request, response, _next) => {
+    if (isMalformedJsonError(error)) {
+      response.status(400).json({ code: "invalid_json" });
+      return;
+    }
+
+    response.status(500).json({ code: "internal_error" });
+  };
+}
+
+function isMalformedJsonError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError &&
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 400 &&
+    "body" in error
+  );
 }

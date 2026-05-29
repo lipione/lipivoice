@@ -11,7 +11,7 @@ export interface ServerConfig {
 
 export function loadServerConfig(env = process.env): ServerConfig {
   return {
-    port: Number(env.PORT ?? 8787),
+    port: parsePort(env.PORT),
     databasePath: env.LIPIVOICE_DB_PATH ?? "data/lipivoice.sqlite",
     ollamaBaseUrl: env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
     ollamaModel: env.LIPIVOICE_LLM_MODEL ?? "llama3.2:3b",
@@ -20,4 +20,10 @@ export function loadServerConfig(env = process.env): ServerConfig {
     piperBin: env.PIPER_BIN ?? "",
     piperVoicePath: env.PIPER_VOICE_PATH ?? "",
   };
+}
+
+function parsePort(value: string | undefined): number {
+  const port = Number(value ?? 8787);
+
+  return Number.isInteger(port) && port > 0 ? port : 8787;
 }
