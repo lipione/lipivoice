@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AgentsPage } from "@/features/agents/AgentsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
 
@@ -12,6 +13,8 @@ export function App() {
     <DashboardShell activePage={activePage} onNavigate={setActivePage}>
       {activePage === "overview" ? (
         <OverviewPage />
+      ) : activePage === "agents" ? (
+        <AgentsPage />
       ) : (
         <section className="mx-auto w-full max-w-4xl">
           <Card>
