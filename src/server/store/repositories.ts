@@ -15,6 +15,7 @@ import type {
   CallEvent,
   ModelRuntime,
   Tool,
+  Voice,
 } from "@/domain/types";
 import type { DatabaseConnection } from "./database";
 
@@ -39,6 +40,10 @@ export interface Repositories {
   runtimes: {
     list(): ModelRuntime[];
     save(runtime: ModelRuntime): ModelRuntime;
+  };
+  voices: {
+    list(): Voice[];
+    get(id: string): Voice | null;
   };
   calls: {
     list(): Call[];
@@ -72,6 +77,10 @@ export function createRepositories(db: DatabaseConnection): Repositories {
     runtimes: {
       list: runtimes.list,
       save: runtimes.save,
+    },
+    voices: {
+      list: voices.list,
+      get: voices.get,
     },
     calls: {
       list: calls.list,

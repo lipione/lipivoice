@@ -4,6 +4,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { VoiceLabPage } from "./VoiceLabPage";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+}
+
 describe("VoiceLabPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -53,5 +62,21 @@ describe("VoiceLabPage", () => {
     await user.click(screen.getByRole("button", { name: "Generate speech" }));
 
     expect(await screen.findByText("runtime_not_configured")).toBeInTheDocument();
+  });
+
+  it("shows which submitted prompt generated the returned audio", async () => {
+    const user = userEvent.setup();
+    const speech = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(async () => speech.promise));
+
+    render(<VoiceLabPage />);
+
+    await user.type(screen.getByLabelText("Text"), "Hello");
+    await user.click(screen.getByRole("button", { name: "Generate speech" }));
+    await user.type(screen.getByLabelText("Text"), " after edit");
+
+    speech.resolve(Response.json({ audioBase64: "UklGRg==", mimeType: "audio/wav" }));
+
+    expect(await screen.findByText('Generated from "Hello" with Piper Amy')).toBeInTheDocument();
   });
 });

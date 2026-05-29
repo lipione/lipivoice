@@ -91,6 +91,15 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
+      const voice = repositories.voices.get(voiceId);
+      const voiceRuntime = voice
+        ? repositories.runtimes.list().find((runtime) => runtime.id === voice.runtimeId)
+        : null;
+      if (!voice || voiceRuntime?.adapter !== "piper") {
+        response.status(404).json({ code: "voice_not_found" });
+        return;
+      }
+
       if (!deps.tts) {
         response.status(409).json({ code: "runtime_not_configured" });
         return;

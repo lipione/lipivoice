@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Clock, ListChecks } from "lucide-react";
 
 import { getJson } from "@/client/api";
@@ -36,6 +36,7 @@ export function CallsPage() {
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [callsError, setCallsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const eventRequestIdRef = useRef(0);
 
   useEffect(() => {
     let isCurrent = true;
@@ -68,17 +69,26 @@ export function CallsPage() {
   }, []);
 
   async function selectCall(callId: string) {
+    const requestId = eventRequestIdRef.current + 1;
+    eventRequestIdRef.current = requestId;
     setSelectedCallId(callId);
     setIsLoadingEvents(true);
     setEventsError(null);
     setEvents([]);
 
     try {
-      setEvents(await getJson<CallEvent[]>(`/api/calls/${callId}/events`));
+      const nextEvents = await getJson<CallEvent[]>(`/api/calls/${callId}/events`);
+      if (eventRequestIdRef.current !== requestId) return;
+
+      setEvents(nextEvents);
     } catch (error) {
+      if (eventRequestIdRef.current !== requestId) return;
+
       setEventsError(error instanceof Error ? error.message : "Unable to load call events.");
     } finally {
-      setIsLoadingEvents(false);
+      if (eventRequestIdRef.current === requestId) {
+        setIsLoadingEvents(false);
+      }
     }
   }
 

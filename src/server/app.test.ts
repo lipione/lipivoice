@@ -1,5 +1,5 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDefaultWorkspace } from "@/domain/defaults";
 import { createAppContextForTest, createAppForTest } from "./app";
 import { loadServerConfig } from "./config";
@@ -128,6 +128,24 @@ describe("server app", () => {
       .expect(200);
 
     expect(response.body).toEqual({ audioBase64: "SGVsbG8=", mimeType: "audio/wav" });
+  });
+
+  it("rejects unknown TTS voices before synthesizing", async () => {
+    const synthesize = vi.fn(async () => ({ audioBase64: "UklGRg==", mimeType: "audio/wav" as const }));
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      tts: {
+        health: async () => ({ status: "healthy", reason: null }),
+        synthesize,
+      },
+    });
+
+    const response = await request(context.app)
+      .post("/api/tts/generate")
+      .send({ text: "Hello", voiceId: "missing_voice" })
+      .expect(404);
+
+    expect(response.body).toEqual({ code: "voice_not_found" });
+    expect(synthesize).not.toHaveBeenCalled();
   });
 });
 

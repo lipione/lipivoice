@@ -12,16 +12,26 @@ interface TtsResponse {
   mimeType: string;
 }
 
+interface GeneratedAudio extends TtsResponse {
+  text: string;
+  voiceName: string;
+}
+
 const localVoices = [{ id: "voice_piper_amy", name: "Piper Amy" }];
 
 export function VoiceLabPage() {
   const [text, setText] = useState("");
   const [voiceId, setVoiceId] = useState(localVoices[0]?.id ?? "");
-  const [audio, setAudio] = useState<TtsResponse | null>(null);
+  const [audio, setAudio] = useState<GeneratedAudio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
   async function generateSpeech() {
+    const submittedText = text.trim();
+    const submittedVoiceId = voiceId;
+    const submittedVoiceName =
+      localVoices.find((voice) => voice.id === submittedVoiceId)?.name ?? submittedVoiceId;
+
     setIsGenerating(true);
     setError(null);
     setAudio(null);
@@ -30,7 +40,7 @@ export function VoiceLabPage() {
       const response = await fetch("/api/tts/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({ text: submittedText, voiceId: submittedVoiceId }),
       });
       const body = (await response.json()) as TtsResponse | { code?: string };
 
@@ -38,7 +48,11 @@ export function VoiceLabPage() {
         throw new Error("code" in body && body.code ? body.code : `Request failed: ${response.status}`);
       }
 
-      setAudio(body as TtsResponse);
+      setAudio({
+        ...(body as TtsResponse),
+        text: submittedText,
+        voiceName: submittedVoiceName,
+      });
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Unable to generate speech.");
     } finally {
@@ -97,11 +111,16 @@ export function VoiceLabPage() {
           </div>
 
           {audio ? (
-            <audio
-              aria-label="Generated speech"
-              controls
-              src={`data:${audio.mimeType};base64,${audio.audioBase64}`}
-            />
+            <div className="grid gap-2">
+              <p className="text-sm text-muted-foreground">
+                Generated from "{audio.text}" with {audio.voiceName}
+              </p>
+              <audio
+                aria-label="Generated speech"
+                controls
+                src={`data:${audio.mimeType};base64,${audio.audioBase64}`}
+              />
+            </div>
           ) : null}
         </CardContent>
       </Card>
