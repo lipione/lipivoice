@@ -21,4 +21,10 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
+  {
+    files: ["**/*.test.{ts,tsx}"],
+    rules: {
+      "no-constant-binary-expression": "off",
+    },
+  },
 );
