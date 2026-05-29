@@ -25,5 +25,5 @@ export function loadServerConfig(env = process.env): ServerConfig {
 function parsePort(value: string | undefined): number {
   const port = Number(value ?? 8787);
 
-  return Number.isInteger(port) && port > 0 ? port : 8787;
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 8787;
 }
