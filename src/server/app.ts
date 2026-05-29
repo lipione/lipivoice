@@ -2,16 +2,21 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace } from "@/domain/defaults";
 import { agentSchema } from "@/domain/schemas";
+import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
+import { OllamaAdapter } from "./runtimes/ollama";
 import { PiperAdapter } from "./runtimes/piper";
-import type { TtsAdapter } from "./runtimes/types";
+import { WhisperCppAdapter } from "./runtimes/whisperCpp";
+import type { RuntimeHealthResult, TtsAdapter } from "./runtimes/types";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
+type RuntimeHealthChecks = Partial<Record<RuntimeAdapter, () => Promise<RuntimeHealthResult>>>;
 
 interface AppDeps {
   tts?: TtsAdapter | null;
+  runtimeHealth?: RuntimeHealthChecks;
 }
 
 export interface AppContext {
@@ -34,9 +39,17 @@ export function createAppContextForTest(seed: WorkspaceSeed, deps?: AppDeps): Ap
 export function createApp(config: ServerConfig): AppContext {
   const repositories = createRepositories(createDatabase(config.databasePath));
   repositories.seedWorkspace(createDefaultWorkspace());
+  const ollama = new OllamaAdapter({ baseUrl: config.ollamaBaseUrl, model: config.ollamaModel });
+  const whisper = new WhisperCppAdapter({ binPath: config.whisperCppBin, modelPath: config.whisperModelPath });
+  const piper = new PiperAdapter({ binPath: config.piperBin, voicePath: config.piperVoicePath });
 
   return createAppContextWithRepositories(repositories, {
-    tts: new PiperAdapter({ binPath: config.piperBin, voicePath: config.piperVoicePath }),
+    tts: piper,
+    runtimeHealth: {
+      ollama: () => ollama.health(),
+      whisper_cpp: () => whisper.health(),
+      piper: () => piper.health(),
+    },
   });
 }
 
@@ -62,8 +75,29 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.json(repositories.agents.save(result.data));
   });
 
-  app.get("/api/model-runtimes", (_request, response) => {
-    response.json(repositories.runtimes.list());
+  app.get("/api/model-runtimes", async (_request, response, next) => {
+    try {
+      const runtimes = await Promise.all(
+        repositories.runtimes.list().map(async (runtime) => {
+          const checkHealth = deps.runtimeHealth?.[runtime.adapter];
+          if (!checkHealth) {
+            return runtime;
+          }
+
+          const health = await checkHealth();
+
+          return {
+            ...runtime,
+            configuredState: configuredStateFromHealth(health),
+            healthStatus: health.status,
+          };
+        }),
+      );
+
+      response.json(runtimes);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/calls", (_request, response) => {
@@ -175,6 +209,12 @@ function createErrorMiddleware(): ErrorRequestHandler {
 
     response.status(500).json({ code: "internal_error" });
   };
+}
+
+function configuredStateFromHealth(health: RuntimeHealthResult): ConfiguredState {
+  return health.status === "missing_model" && health.reason === "runtime_not_configured"
+    ? "not_configured"
+    : "configured";
 }
 
 function isMalformedJsonError(error: unknown): boolean {

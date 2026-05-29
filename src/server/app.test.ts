@@ -17,6 +17,32 @@ describe("server app", () => {
     );
   });
 
+  it("overlays runtime health checks onto configured runtimes", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      runtimeHealth: {
+        whisper_cpp: async () => ({ status: "missing_model", reason: "runtime_not_configured" }),
+        piper: async () => ({ status: "healthy", reason: null }),
+      },
+    });
+
+    const response = await request(app).get("/api/model-runtimes").expect(200);
+
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adapter: "whisper_cpp",
+          configuredState: "not_configured",
+          healthStatus: "missing_model",
+        }),
+        expect.objectContaining({
+          adapter: "piper",
+          configuredState: "configured",
+          healthStatus: "healthy",
+        }),
+      ]),
+    );
+  });
+
   it("creates a simulated call with an initial event", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const agentId = (await request(app).get("/api/agents")).body[0].id;

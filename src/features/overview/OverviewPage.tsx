@@ -1,16 +1,20 @@
+import { useEffect, useMemo, useState } from "react";
 import { Activity, Bot, ListChecks, Mic } from "lucide-react";
 
+import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ModelRuntime } from "@/domain/types";
 
-const metrics = [
-  {
-    label: "Runtime status",
-    value: "Ready",
-    detail: "Local services configured",
-    icon: Activity,
-    badge: "Healthy",
-  },
+type RuntimeSummary = {
+  banner: string;
+  badgeVariant: "success" | "warning" | "danger" | "outline";
+  value: string;
+  detail: string;
+  badge: string;
+};
+
+const staticMetrics = [
   {
     label: "Active sessions",
     value: "0",
@@ -34,7 +38,76 @@ const metrics = [
   },
 ];
 
+const loadingRuntimeSummary: RuntimeSummary = {
+  banner: "Runtime checking",
+  badgeVariant: "outline",
+  value: "Checking",
+  detail: "Reading local runtime config",
+  badge: "Loading",
+};
+
+const errorRuntimeSummary: RuntimeSummary = {
+  banner: "Runtime unknown",
+  badgeVariant: "danger",
+  value: "Unknown",
+  detail: "Unable to load runtime status",
+  badge: "Error",
+};
+
 export function OverviewPage() {
+  const [runtimes, setRuntimes] = useState<Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[]>([]);
+  const [isLoadingRuntimes, setIsLoadingRuntimes] = useState(true);
+  const [runtimeError, setRuntimeError] = useState(false);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadRuntimes() {
+      setIsLoadingRuntimes(true);
+      setRuntimeError(false);
+
+      try {
+        const nextRuntimes =
+          await getJson<Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[]>("/api/model-runtimes");
+        if (!isCurrent) return;
+
+        setRuntimes(nextRuntimes);
+      } catch {
+        if (!isCurrent) return;
+
+        setRuntimeError(true);
+      } finally {
+        if (isCurrent) {
+          setIsLoadingRuntimes(false);
+        }
+      }
+    }
+
+    void loadRuntimes();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  const runtimeSummary = useMemo(() => {
+    if (isLoadingRuntimes) return loadingRuntimeSummary;
+    if (runtimeError) return errorRuntimeSummary;
+
+    return summarizeRuntimes(runtimes);
+  }, [isLoadingRuntimes, runtimeError, runtimes]);
+
+  const metrics = [
+    {
+      label: "Runtime status",
+      value: runtimeSummary.value,
+      detail: runtimeSummary.detail,
+      icon: Activity,
+      badge: runtimeSummary.badge,
+    },
+    ...staticMetrics,
+  ];
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
       <section className="flex flex-col gap-2">
@@ -45,7 +118,7 @@ export function OverviewPage() {
               Local voice-agent runtime status and current activity.
             </p>
           </div>
-          <Badge variant="success">Runtime ready</Badge>
+          <Badge variant={runtimeSummary.badgeVariant}>{runtimeSummary.banner}</Badge>
         </div>
       </section>
 
@@ -95,4 +168,51 @@ export function OverviewPage() {
       </section>
     </div>
   );
+}
+
+function summarizeRuntimes(
+  runtimes: Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[],
+): RuntimeSummary {
+  const speechRuntimes = runtimes.filter((runtime) => runtime.kind === "stt" || runtime.kind === "tts");
+
+  if (
+    speechRuntimes.length === 0 ||
+    speechRuntimes.some((runtime) => runtime.configuredState !== "configured")
+  ) {
+    return {
+      banner: "Runtime not configured",
+      badgeVariant: "warning",
+      value: "Not configured",
+      detail: "Speech runtimes missing",
+      badge: "Setup",
+    };
+  }
+
+  if (speechRuntimes.some((runtime) => runtime.healthStatus === "failed" || runtime.healthStatus === "unavailable")) {
+    return {
+      banner: "Runtime unavailable",
+      badgeVariant: "danger",
+      value: "Unavailable",
+      detail: "Local runtime check failed",
+      badge: "Failed",
+    };
+  }
+
+  if (speechRuntimes.some((runtime) => runtime.healthStatus === "missing_model")) {
+    return {
+      banner: "Runtime not configured",
+      badgeVariant: "warning",
+      value: "Not configured",
+      detail: "Speech models missing",
+      badge: "Setup",
+    };
+  }
+
+  return {
+    banner: "Runtime ready",
+    badgeVariant: "success",
+    value: "Ready",
+    detail: "Speech runtimes configured",
+    badge: "Healthy",
+  };
 }
