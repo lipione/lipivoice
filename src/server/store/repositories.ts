@@ -149,10 +149,11 @@ function createJsonRepository<T extends { id: string }>(
     },
     save(record: T): T {
       const parsed = parse(record);
-      db.prepare(`INSERT OR REPLACE INTO ${tableName} (id, data) VALUES (?, ?)`).run(
-        parsed.id,
-        JSON.stringify(parsed),
-      );
+      db.prepare(`
+        INSERT INTO ${tableName} (id, data)
+        VALUES (?, ?)
+        ON CONFLICT(id) DO UPDATE SET data = excluded.data
+      `).run(parsed.id, JSON.stringify(parsed));
       return parsed;
     },
     insertMissing(record: T): T {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { createDefaultWorkspace } from "@/domain/defaults";
 import { createDatabase } from "./database";
 import { createRepositories, type Repositories } from "./repositories";
@@ -23,14 +24,64 @@ describe("repositories", () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "lipivoice-store-"));
     const filename = path.join(tempDir, "nested", "data", "lipivoice.sqlite");
     const db = createDatabase(filename);
+    const fileRepos = createRepositories(db);
 
     try {
-      const fileRepos = createRepositories(db);
       fileRepos.seedWorkspace(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
 
       expect(fileRepos.agents.list()).toHaveLength(1);
-      fileRepos.close();
     } finally {
+      fileRepos.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates old call event tables to include a call foreign key", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "lipivoice-store-"));
+    const filename = path.join(tempDir, "lipivoice.sqlite");
+    const oldDb = new Database(filename);
+
+    oldDb.exec(`
+      CREATE TABLE calls (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+
+      CREATE TABLE call_events (
+        id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
+
+      INSERT INTO calls (id, data)
+      VALUES ('call_existing', '{"id":"call_existing"}');
+
+      INSERT INTO call_events (id, call_id, timestamp, data)
+      VALUES
+        ('event_existing', 'call_existing', '2026-05-29T00:00:02.000Z', '{"id":"event_existing"}'),
+        ('event_orphan', 'missing_call', '2026-05-29T00:00:03.000Z', '{"id":"event_orphan"}');
+    `);
+    oldDb.close();
+
+    const migratedDb = createDatabase(filename);
+
+    try {
+      const foreignKeys = migratedDb
+        .prepare("PRAGMA foreign_key_list(call_events)")
+        .all() as Array<{ table: string; from: string; to: string }>;
+      const eventCount = migratedDb
+        .prepare("SELECT COUNT(*) AS count FROM call_events")
+        .get() as { count: number };
+
+      expect(foreignKeys).toContainEqual(expect.objectContaining({
+        from: "call_id",
+        table: "calls",
+        to: "id",
+      }));
+      expect(eventCount.count).toBe(1);
+    } finally {
+      migratedDb.close();
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
@@ -82,6 +133,29 @@ describe("repositories", () => {
       "2026-05-29T00:00:02.000Z",
       "2026-05-29T00:00:03.000Z",
     ]);
+  });
+
+  it("keeps call events when updating a call", () => {
+    const agent = repos.agents.list()[0];
+    const call = repos.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: agent.id,
+      status: "connecting",
+      startedAt: "2026-05-29T00:00:01.000Z",
+    });
+
+    repos.callEvents.append({
+      callId: call.id,
+      timestamp: "2026-05-29T00:00:02.000Z",
+      type: "status",
+      actor: "system",
+      payload: { status: "connecting" },
+      severity: "info",
+    });
+    repos.calls.update({ ...call, status: "connected" });
+
+    expect(repos.callEvents.listForCall(call.id)).toHaveLength(1);
   });
 
   it("rejects call events for missing calls", () => {
