@@ -30,7 +30,7 @@ export PORT=8787
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
-If Whisper or Piper is not configured, voice and TTS surfaces intentionally report `runtime_not_configured`.
+If Piper is not configured, Voice Lab intentionally reports `runtime_not_configured`. The Web Voice realtime turn pipeline is still stubbed in this prototype, so it also reports `runtime_not_configured` even after the local runtime paths are present.
 
 ## Development
 
@@ -52,7 +52,7 @@ Start the frontend dev server in another terminal:
 npm run dev
 ```
 
-Open the Vite URL, usually `http://localhost:5173`.
+Open the Vite URL, usually `http://localhost:5173`. The Vite dev server proxies `/api` and `/api/realtime` to the API server on port `8787`.
 
 ## Verification
 
