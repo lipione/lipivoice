@@ -73,14 +73,17 @@ const navigationItems: NavigationItem[] = [
 
 export function DashboardShell({ activePage, onNavigate, children }: DashboardShellProps) {
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
-        <div className="border-b border-border px-4 py-4">
+    <div className="flex min-h-screen w-full flex-col bg-background text-foreground md:flex-row">
+      <aside className="flex w-full min-w-0 flex-col border-b border-border bg-card md:w-64 md:shrink-0 md:border-b-0 md:border-r">
+        <div className="border-b border-border px-4 py-3 md:py-4">
           <div className="text-base font-semibold leading-6">LipiVoice</div>
           <div className="mt-0.5 text-xs text-muted-foreground">Local runtime</div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label="Primary">
+        <nav
+          className="flex max-w-full gap-1 overflow-x-auto px-3 py-2 md:block md:flex-1 md:space-y-1 md:overflow-x-visible md:overflow-y-auto md:py-3"
+          aria-label="Primary"
+        >
           {navigationItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activePage;
@@ -91,7 +94,7 @@ export function DashboardShell({ activePage, onNavigate, children }: DashboardSh
                 type="button"
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
-                  "h-9 w-full justify-start overflow-hidden px-2.5 text-left",
+                  "h-9 max-w-44 flex-none justify-start overflow-hidden px-3 text-left md:w-full md:max-w-none md:flex-auto md:px-2.5",
                   isActive && "bg-muted font-semibold",
                 )}
                 aria-current={isActive ? "page" : undefined}
@@ -106,18 +109,18 @@ export function DashboardShell({ activePage, onNavigate, children }: DashboardSh
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border bg-background px-6">
+        <header className="flex min-h-16 flex-col items-start justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:flex-row sm:items-center md:px-6">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-normal">{pageLabels[activePage]}</h1>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
             <Badge variant="outline">Open-source</Badge>
             <Badge variant="success">Local first</Badge>
             <Badge variant="warning">Phone simulated</Badge>
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-auto bg-muted/30 p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto bg-muted/30 p-4 md:p-6">{children}</main>
       </div>
     </div>
   );
