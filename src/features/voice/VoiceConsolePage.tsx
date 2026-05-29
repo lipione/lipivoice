@@ -150,11 +150,15 @@ export function VoiceConsolePage() {
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
+        if (activeSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         if (event.data.size === 0) {
           return;
         }
 
-        void sendRecordedBlob(event.data);
+        void sendRecordedBlob(event.data, sessionId);
       };
       recorder.start(1000);
     } catch {
@@ -166,8 +170,13 @@ export function VoiceConsolePage() {
     cleanupSession({ status: "stopped" });
   }
 
-  async function sendRecordedBlob(blob: Blob) {
+  async function sendRecordedBlob(blob: Blob, sessionId: number) {
     const audioBase64 = await blobToBase64(blob);
+
+    if (activeSessionIdRef.current !== sessionId) {
+      return;
+    }
+
     socketRef.current?.send({
       type: "audio_chunk",
       mimeType: blob.type || "audio/webm",

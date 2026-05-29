@@ -270,6 +270,43 @@ describe("VoiceConsolePage", () => {
     expect(screen.queryByText("stopped")).not.toBeInTheDocument();
   });
 
+  it("does not send stale recorder chunks to newer sessions", async () => {
+    const user = userEvent.setup();
+    const firstStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+    const secondStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+    const getUserMedia = vi.fn().mockResolvedValueOnce(firstStream).mockResolvedValueOnce(secondStream);
+    const pendingChunk = deferred<ArrayBuffer>();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    render(<VoiceConsolePage />);
+
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+    await waitFor(() => expect(MockMediaRecorder.instances).toHaveLength(1));
+
+    MockMediaRecorder.instances[0]?.emitAudio({
+      size: 5,
+      type: "audio/webm",
+      arrayBuffer: vi.fn(() => pendingChunk.promise),
+    } as unknown as Blob);
+
+    await user.click(screen.getByRole("button", { name: /Stop/ }));
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
+
+    await act(async () => {
+      pendingChunk.resolve(new TextEncoder().encode("voice").buffer);
+      await pendingChunk.promise;
+    });
+
+    expect(MockWebSocket.instances[0]?.sent).toHaveLength(0);
+    expect(MockWebSocket.instances[1]?.sent).toHaveLength(0);
+  });
+
   it("stops capture and marks failed when the socket errors", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
