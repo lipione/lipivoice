@@ -5,8 +5,14 @@ import { agentSchema } from "@/domain/schemas";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
+import { PiperAdapter } from "./runtimes/piper";
+import type { TtsAdapter } from "./runtimes/types";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
+
+interface AppDeps {
+  tts?: TtsAdapter | null;
+}
 
 export interface AppContext {
   app: express.Express;
@@ -14,25 +20,27 @@ export interface AppContext {
   close(): void;
 }
 
-export function createAppForTest(seed: WorkspaceSeed) {
-  return createAppContextForTest(seed).app;
+export function createAppForTest(seed: WorkspaceSeed, deps?: AppDeps) {
+  return createAppContextForTest(seed, deps).app;
 }
 
-export function createAppContextForTest(seed: WorkspaceSeed): AppContext {
+export function createAppContextForTest(seed: WorkspaceSeed, deps?: AppDeps): AppContext {
   const repositories = createRepositories(createDatabase(":memory:"));
   repositories.seedWorkspace(seed);
 
-  return createAppContextWithRepositories(repositories);
+  return createAppContextWithRepositories(repositories, deps);
 }
 
 export function createApp(config: ServerConfig): AppContext {
   const repositories = createRepositories(createDatabase(config.databasePath));
   repositories.seedWorkspace(createDefaultWorkspace());
 
-  return createAppContextWithRepositories(repositories);
+  return createAppContextWithRepositories(repositories, {
+    tts: new PiperAdapter({ binPath: config.piperBin, voicePath: config.piperVoicePath }),
+  });
 }
 
-function createAppContextWithRepositories(repositories: Repositories): AppContext {
+function createAppContextWithRepositories(repositories: Repositories, deps: AppDeps = {}): AppContext {
   const app = express();
   let closed = false;
 
@@ -71,6 +79,33 @@ function createAppContextWithRepositories(repositories: Repositories): AppContex
     }
 
     response.json(repositories.callEvents.listForCall(call.id));
+  });
+
+  app.post("/api/tts/generate", async (request, response, next) => {
+    try {
+      const text = typeof request.body?.text === "string" ? request.body.text.trim() : "";
+      const voiceId = typeof request.body?.voiceId === "string" ? request.body.voiceId : "";
+
+      if (!text || !voiceId) {
+        response.status(400).json({ code: "invalid_tts_request" });
+        return;
+      }
+
+      if (!deps.tts) {
+        response.status(409).json({ code: "runtime_not_configured" });
+        return;
+      }
+
+      const health = await deps.tts.health();
+      if (health.status !== "healthy") {
+        response.status(409).json({ code: "runtime_not_configured" });
+        return;
+      }
+
+      response.json(await deps.tts.synthesize({ text, voicePath: voiceId }));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/calls/simulate", (request, response) => {

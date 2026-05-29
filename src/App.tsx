@@ -2,8 +2,10 @@ import { useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsPage } from "@/features/agents/AgentsPage";
+import { CallsPage } from "@/features/calls/CallsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
+import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
 import { VoiceConsolePage } from "@/features/voice/VoiceConsolePage";
 
 export function App() {
@@ -18,6 +20,10 @@ export function App() {
         <AgentsPage />
       ) : activePage === "web-voice" ? (
         <VoiceConsolePage />
+      ) : activePage === "calls" ? (
+        <CallsPage />
+      ) : activePage === "voice-lab" ? (
+        <VoiceLabPage />
       ) : (
         <section className="mx-auto w-full max-w-4xl">
           <Card>

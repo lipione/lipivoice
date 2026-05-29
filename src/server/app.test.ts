@@ -99,6 +99,36 @@ describe("server app", () => {
 
     expect(response.body).toEqual({ code: "call_not_found" });
   });
+
+  it("returns runtime_not_configured when local TTS is not configured", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app)
+      .post("/api/tts/generate")
+      .send({ text: "Hello", voiceId: "voice_piper_amy" })
+      .expect(409);
+
+    expect(response.body).toEqual({ code: "runtime_not_configured" });
+  });
+
+  it("generates speech with an injected TTS adapter", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      tts: {
+        health: async () => ({ status: "healthy", reason: null }),
+        synthesize: async (input) => ({
+          audioBase64: Buffer.from(input.text).toString("base64"),
+          mimeType: "audio/wav",
+        }),
+      },
+    });
+
+    const response = await request(context.app)
+      .post("/api/tts/generate")
+      .send({ text: "Hello", voiceId: "voice_piper_amy" })
+      .expect(200);
+
+    expect(response.body).toEqual({ audioBase64: "SGVsbG8=", mimeType: "audio/wav" });
+  });
 });
 
 describe("server config", () => {
