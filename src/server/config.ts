@@ -1,0 +1,23 @@
+export interface ServerConfig {
+  port: number;
+  databasePath: string;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  whisperCppBin: string;
+  whisperModelPath: string;
+  piperBin: string;
+  piperVoicePath: string;
+}
+
+export function loadServerConfig(env = process.env): ServerConfig {
+  return {
+    port: Number(env.PORT ?? 8787),
+    databasePath: env.LIPIVOICE_DB_PATH ?? "data/lipivoice.sqlite",
+    ollamaBaseUrl: env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
+    ollamaModel: env.LIPIVOICE_LLM_MODEL ?? "llama3.2:3b",
+    whisperCppBin: env.WHISPER_CPP_BIN ?? "",
+    whisperModelPath: env.WHISPER_MODEL_PATH ?? "",
+    piperBin: env.PIPER_BIN ?? "",
+    piperVoicePath: env.PIPER_VOICE_PATH ?? "",
+  };
+}
