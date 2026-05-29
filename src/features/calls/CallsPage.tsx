@@ -21,6 +21,9 @@ function formatMoney(value: number | null | undefined) {
 function formatPayload(payload: Record<string, unknown> | undefined) {
   if (!payload) return "No event payload";
 
+  const toolSummary = formatToolPayload(payload);
+  if (toolSummary) return toolSummary;
+
   const toolName = payload.toolName;
   if (typeof toolName === "string") return toolName;
 
@@ -37,6 +40,36 @@ function formatPayload(payload: Record<string, unknown> | undefined) {
   if (typeof text === "string") return text;
 
   return JSON.stringify(payload);
+}
+
+function formatToolPayload(payload: Record<string, unknown>) {
+  const toolName = payload.toolName;
+  if (typeof toolName !== "string") {
+    return null;
+  }
+
+  const parts = [toolName];
+  const ok = payload.ok;
+  const status = payload.status;
+  if (typeof ok === "boolean" || typeof status === "number") {
+    if (ok === false && status === 0) {
+      parts.push("failed");
+    } else if (typeof status === "number") {
+      parts.push(String(status));
+    }
+  }
+
+  const attempts = payload.attempts;
+  if (typeof attempts === "number") {
+    parts.push(`${attempts} ${attempts === 1 ? "attempt" : "attempts"}`);
+  }
+
+  const error = payload.error;
+  if (typeof error === "string" && error.length > 0) {
+    parts.push(error);
+  }
+
+  return parts.join(" · ");
 }
 
 export function CallsPage() {

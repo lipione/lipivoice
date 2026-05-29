@@ -35,7 +35,9 @@ type VoicePipelineEvent =
         arguments: Record<string, unknown>;
         ok: boolean;
         status: number;
+        attempts: number;
         durationMs: number;
+        error?: string;
         request: ToolExecutionResult["request"];
         response: ToolExecutionResult["response"];
       };
@@ -123,7 +125,9 @@ export async function runVoiceTurn(input: VoicePipelineInput) {
         arguments: toolRequest.arguments,
         ok: toolResult.ok,
         status: toolResult.status,
+        attempts: toolResult.attempts,
         durationMs: toolResult.durationMs,
+        error: toolResult.error,
         request: toolResult.request,
         response: toolResult.response,
       },
@@ -203,6 +207,8 @@ function toolResultMessage(result: ToolExecutionResult) {
   return `Tool result for ${result.toolName}: ${JSON.stringify({
     ok: result.ok,
     status: result.status,
+    attempts: result.attempts,
+    error: result.error,
     response: result.response.body,
   })}. Answer the caller using this result.`;
 }

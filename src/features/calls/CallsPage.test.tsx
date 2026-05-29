@@ -117,6 +117,39 @@ describe("CallsPage", () => {
     expect(screen.getByText("Order lookup")).toBeInTheDocument();
   });
 
+  it("summarizes tool call status, attempts, and errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/api/calls/call_1/events")) {
+          return Response.json([
+            {
+              id: "event_tool",
+              callId: "call_1",
+              timestamp: "2026-05-29T00:00:04.000Z",
+              type: "tool_call",
+              actor: "tool",
+              severity: "error",
+              payload: {
+                toolName: "Order lookup",
+                ok: false,
+                status: 0,
+                attempts: 2,
+                error: "socket closed",
+              },
+            },
+          ]);
+        }
+
+        return Response.json(calls);
+      }),
+    );
+
+    render(<CallsPage />);
+
+    expect(await screen.findByText("Order lookup · failed · 2 attempts · socket closed")).toBeInTheDocument();
+  });
+
   it("ignores stale event responses after selecting another call", async () => {
     const user = userEvent.setup();
     const slowCallEvents = deferred<Response>();

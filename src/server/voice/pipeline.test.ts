@@ -183,6 +183,7 @@ describe("voice pipeline", () => {
           toolName: tool.name,
           ok: true,
           status: 200,
+          attempts: 1,
           durationMs: 12,
           request: {
             method: "GET",
