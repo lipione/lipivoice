@@ -235,6 +235,41 @@ describe("VoiceConsolePage", () => {
     expect(stop).toHaveBeenCalled();
   });
 
+  it("ignores stale socket close events after a newer session starts", async () => {
+    const user = userEvent.setup();
+    const stopFirst = vi.fn();
+    const stopSecond = vi.fn();
+    const firstStream = { getTracks: () => [{ stop: stopFirst }] } as unknown as MediaStream;
+    const secondStream = { getTracks: () => [{ stop: stopSecond }] } as unknown as MediaStream;
+    const getUserMedia = vi.fn().mockResolvedValueOnce(firstStream).mockResolvedValueOnce(secondStream);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    render(<VoiceConsolePage />);
+
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const oldSocket = MockWebSocket.instances[0];
+
+    await user.click(screen.getByRole("button", { name: /Stop/ }));
+    expect(stopFirst).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
+
+    act(() => {
+      oldSocket?.dispatchEvent(new Event("close"));
+    });
+
+    expect(stopSecond).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Stop/ })).not.toBeDisabled();
+    expect(screen.queryByText("stopped")).not.toBeInTheDocument();
+  });
+
   it("stops capture and marks failed when the socket errors", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();

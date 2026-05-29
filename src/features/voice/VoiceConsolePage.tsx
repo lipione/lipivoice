@@ -116,15 +116,31 @@ export function VoiceConsolePage() {
     streamRef.current = stream;
     const socket = createVoiceSocket(getRealtimeSocketUrl(), {
       onOpen() {
+        if (activeSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         dispatchVoiceEvent({ type: "status", status: "listening" });
       },
       onEvent(event) {
+        if (activeSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         dispatchVoiceEvent(event);
       },
       onError(reason) {
+        if (activeSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         cleanupSession({ status: "failed", reason });
       },
       onClose() {
+        if (activeSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         cleanupSession({ status: "stopped" });
       },
     });
