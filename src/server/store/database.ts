@@ -1,8 +1,14 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import Database from "better-sqlite3";
 
 export type DatabaseConnection = Database.Database;
 
 export function createDatabase(filename: string): DatabaseConnection {
+  if (filename !== ":memory:") {
+    mkdirSync(dirname(filename), { recursive: true });
+  }
+
   const db = new Database(filename);
   db.pragma("foreign_keys = ON");
   runMigrations(db);
@@ -45,7 +51,8 @@ function runMigrations(db: DatabaseConnection): void {
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       timestamp TEXT NOT NULL,
-      data TEXT NOT NULL
+      data TEXT NOT NULL,
+      FOREIGN KEY (call_id) REFERENCES calls(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS call_events_call_id_timestamp_idx

@@ -112,12 +112,12 @@ export function createRepositories(db: DatabaseConnection): Repositories {
     },
     seedWorkspace(seed) {
       const transaction = db.transaction(() => {
-        seed.agents.forEach(agents.save);
-        seed.modelRuntimes.forEach(runtimes.save);
-        seed.modelAssets.forEach(modelAssets.save);
-        seed.voices.forEach(voices.save);
+        seed.agents.forEach(agents.insertMissing);
+        seed.modelRuntimes.forEach(runtimes.insertMissing);
+        seed.modelAssets.forEach(modelAssets.insertMissing);
+        seed.voices.forEach(voices.insertMissing);
         const seedWithTools = seed as ReturnType<typeof createDefaultWorkspace> & { tools?: Tool[] };
-        seedWithTools.tools?.forEach(tools.save);
+        seedWithTools.tools?.forEach(tools.insertMissing);
       });
 
       transaction();
@@ -150,6 +150,14 @@ function createJsonRepository<T extends { id: string }>(
     save(record: T): T {
       const parsed = parse(record);
       db.prepare(`INSERT OR REPLACE INTO ${tableName} (id, data) VALUES (?, ?)`).run(
+        parsed.id,
+        JSON.stringify(parsed),
+      );
+      return parsed;
+    },
+    insertMissing(record: T): T {
+      const parsed = parse(record);
+      db.prepare(`INSERT OR IGNORE INTO ${tableName} (id, data) VALUES (?, ?)`).run(
         parsed.id,
         JSON.stringify(parsed),
       );
