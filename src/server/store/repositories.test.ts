@@ -69,13 +69,85 @@ describe("repositories", () => {
     try {
       const foreignKeys = migratedDb
         .prepare("PRAGMA foreign_key_list(call_events)")
-        .all() as Array<{ table: string; from: string; to: string }>;
+        .all() as Array<{ table: string; from: string; to: string; on_delete: string }>;
       const eventCount = migratedDb
         .prepare("SELECT COUNT(*) AS count FROM call_events")
         .get() as { count: number };
 
       expect(foreignKeys).toContainEqual(expect.objectContaining({
         from: "call_id",
+        on_delete: "CASCADE",
+        table: "calls",
+        to: "id",
+      }));
+      expect(eventCount.count).toBe(1);
+    } finally {
+      migratedDb.close();
+    }
+
+    const reopenedDb = createDatabase(filename);
+
+    try {
+      const foreignKeys = reopenedDb
+        .prepare("PRAGMA foreign_key_list(call_events)")
+        .all() as Array<{ table: string; from: string; to: string; on_delete: string }>;
+      const eventCount = reopenedDb
+        .prepare("SELECT COUNT(*) AS count FROM call_events")
+        .get() as { count: number };
+
+      expect(foreignKeys).toContainEqual(expect.objectContaining({
+        from: "call_id",
+        on_delete: "CASCADE",
+        table: "calls",
+        to: "id",
+      }));
+      expect(eventCount.count).toBe(1);
+    } finally {
+      reopenedDb.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds call event tables with non-cascade call foreign keys", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "lipivoice-store-"));
+    const filename = path.join(tempDir, "lipivoice.sqlite");
+    const oldDb = new Database(filename);
+
+    oldDb.exec(`
+      CREATE TABLE calls (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+
+      CREATE TABLE call_events (
+        id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        data TEXT NOT NULL,
+        FOREIGN KEY (call_id) REFERENCES calls(id)
+      );
+
+      INSERT INTO calls (id, data)
+      VALUES ('call_existing', '{"id":"call_existing"}');
+
+      INSERT INTO call_events (id, call_id, timestamp, data)
+      VALUES ('event_existing', 'call_existing', '2026-05-29T00:00:02.000Z', '{"id":"event_existing"}');
+    `);
+    oldDb.close();
+
+    const migratedDb = createDatabase(filename);
+
+    try {
+      const foreignKeys = migratedDb
+        .prepare("PRAGMA foreign_key_list(call_events)")
+        .all() as Array<{ table: string; from: string; to: string; on_delete: string }>;
+      const eventCount = migratedDb
+        .prepare("SELECT COUNT(*) AS count FROM call_events")
+        .get() as { count: number };
+
+      expect(foreignKeys).toContainEqual(expect.objectContaining({
+        from: "call_id",
+        on_delete: "CASCADE",
         table: "calls",
         to: "id",
       }));
