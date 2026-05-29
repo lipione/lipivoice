@@ -71,10 +71,12 @@ export function OverviewPage() {
         })}
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-4">
+      <section className="py-2" aria-labelledby="current-runbook-title">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold tracking-normal">Current runbook</h3>
+            <h3 id="current-runbook-title" className="text-sm font-semibold tracking-normal">
+              Current runbook
+            </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Use the sidebar to configure agents, test web voice, review calls, and inspect local usage.
             </p>
