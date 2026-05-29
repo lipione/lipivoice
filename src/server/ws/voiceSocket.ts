@@ -1,4 +1,6 @@
 import type { Server } from "node:http";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
 export interface VoiceSocketDeps {
@@ -14,13 +16,21 @@ interface AudioChunkMessage {
   audioBase64: string;
 }
 
-export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps) {
-  const socketServer = new WebSocketServer({ noServer: true });
+export interface VoiceSocketLifecycle {
+  close(): Promise<void>;
+}
 
-  server.on("upgrade", (request, socket, head) => {
+export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceSocketLifecycle {
+  const socketServer = new WebSocketServer({ noServer: true });
+  const clients = new Set<WebSocket>();
+  let closing = false;
+  let closed = false;
+  let closePromise: Promise<void> | null = null;
+
+  function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
 
-    if (path !== "/api/realtime") {
+    if (closing || path !== "/api/realtime") {
       socket.destroy();
       return;
     }
@@ -28,9 +38,17 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps) {
     socketServer.handleUpgrade(request, socket, head, (webSocket) => {
       socketServer.emit("connection", webSocket, request);
     });
-  });
+  }
+
+  server.on("upgrade", handleUpgrade);
 
   socketServer.on("connection", (webSocket) => {
+    clients.add(webSocket);
+    webSocket.once("close", () => {
+      clients.delete(webSocket);
+    });
+
+    let processing = false;
     const ready = deps.checkReady().then(
       (result) => {
         if (!result.ready) {
@@ -48,19 +66,52 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps) {
     );
 
     webSocket.on("message", (data) => {
-      void handleMessage(webSocket, deps, ready, data);
+      void handleMessage(webSocket, deps, ready, data, {
+        isProcessing: () => processing,
+        setProcessing(value) {
+          processing = value;
+        },
+      });
     });
   });
 
   server.on("close", () => {
-    for (const client of socketServer.clients) {
-      client.close();
-    }
-
-    socketServer.close();
+    void close();
   });
 
-  return socketServer;
+  async function close() {
+    if (closed) {
+      return;
+    }
+
+    if (closePromise) {
+      await closePromise;
+      return;
+    }
+
+    closePromise = closeInternal();
+    await closePromise;
+  }
+
+  async function closeInternal() {
+    closing = true;
+    server.off("upgrade", handleUpgrade);
+
+    for (const client of clients) {
+      closeClient(client);
+    }
+
+    await waitForClientsToClose(clients);
+
+    for (const client of clients) {
+      client.terminate();
+    }
+
+    await closeSocketServer(socketServer);
+    closed = true;
+  }
+
+  return { close };
 }
 
 async function handleMessage(
@@ -68,6 +119,7 @@ async function handleMessage(
   deps: VoiceSocketDeps,
   ready: Promise<{ ready: true } | { ready: false; reason: string }>,
   data: RawData,
+  state: { isProcessing(): boolean; setProcessing(value: boolean): void },
 ) {
   const message = parseClientMessage(data);
 
@@ -81,6 +133,12 @@ async function handleMessage(
     return;
   }
 
+  if (state.isProcessing()) {
+    sendJson(webSocket, { type: "error", reason: "processing_in_progress" });
+    return;
+  }
+
+  state.setProcessing(true);
   try {
     sendJson(webSocket, { type: "status", status: "listening" });
     sendJson(webSocket, { type: "status", status: "thinking" });
@@ -92,6 +150,8 @@ async function handleMessage(
     }
   } catch {
     sendJson(webSocket, { type: "status", status: "failed", reason: "processing_failed" });
+  } finally {
+    state.setProcessing(false);
   }
 }
 
@@ -138,4 +198,57 @@ function closeAfterSend(webSocket: WebSocket) {
   if (typeof timer === "object" && "unref" in timer) {
     timer.unref();
   }
+}
+
+function closeClient(client: WebSocket) {
+  try {
+    if (client.readyState === WebSocket.OPEN) {
+      client.close();
+    }
+  } catch {
+    client.terminate();
+  }
+}
+
+function waitForClientsToClose(clients: Set<WebSocket>) {
+  const closingClients = [...clients].filter((client) => client.readyState !== WebSocket.CLOSED);
+
+  if (closingClients.length === 0) {
+    return Promise.resolve();
+  }
+
+  return Promise.race([
+    Promise.all(
+      closingClients.map(
+        (client) =>
+          new Promise<void>((resolve) => {
+            client.once("close", () => resolve());
+          }),
+      ),
+    ).then(() => undefined),
+    delay(100),
+  ]);
+}
+
+function closeSocketServer(socketServer: WebSocketServer) {
+  return new Promise<void>((resolve, reject) => {
+    socketServer.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+
+    if (typeof timer === "object" && "unref" in timer) {
+      timer.unref();
+    }
+  });
 }

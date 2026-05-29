@@ -10,17 +10,19 @@ import { attachVoiceSocket, type VoiceSocketDeps } from "./ws/voiceSocket";
 const config = loadServerConfig();
 const context = createApp(config);
 const server = createServer(context.app);
-attachVoiceSocket(server, createVoiceSocketDeps(config));
+const voiceSocket = attachVoiceSocket(server, createVoiceSocketDeps(config));
 
 function closeContext() {
   context.close();
 }
 
 function shutdown() {
-  server.close(() => {
-    closeContext();
-    process.exit(0);
-  });
+  void shutdownGracefully().then(() => process.exit(0));
+}
+
+async function shutdownGracefully() {
+  await Promise.all([voiceSocket.close(), closeServer()]);
+  closeContext();
 }
 
 server.on("close", closeContext);
@@ -45,7 +47,8 @@ function createVoiceSocketDeps(config: ServerConfig): VoiceSocketDeps {
         return { ready: false, reason: "runtime_not_configured" };
       }
 
-      return { ready: true };
+      // The adapters are configured, but WebSocket audio conversion and turn execution are still Task 8 work.
+      return { ready: false, reason: "runtime_not_configured" };
     },
     async processAudio(_input) {
       void runtimes;
@@ -65,4 +68,21 @@ function hasRequiredLocalRuntimePaths(config: ServerConfig): boolean {
 
 function isExistingPath(path: string): boolean {
   return path.trim().length > 0 && existsSync(path);
+}
+
+function closeServer() {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
 }
