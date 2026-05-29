@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AgentsPage } from "@/features/agents/AgentsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
+import { VoiceConsolePage } from "@/features/voice/VoiceConsolePage";
 
 export function App() {
   const [activePage, setActivePage] = useState<PageId>("overview");
@@ -15,6 +16,8 @@ export function App() {
         <OverviewPage />
       ) : activePage === "agents" ? (
         <AgentsPage />
+      ) : activePage === "web-voice" ? (
+        <VoiceConsolePage />
       ) : (
         <section className="mx-auto w-full max-w-4xl">
           <Card>
