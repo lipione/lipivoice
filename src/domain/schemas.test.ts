@@ -45,7 +45,7 @@ describe("domain schemas", () => {
     ).toThrow(/Invalid URL/);
   });
 
-  it("marks model runtimes as local by adapter", () => {
+  it("accepts an Ollama model runtime", () => {
     const runtime = modelRuntimeSchema.parse({
       id: "runtime_ollama",
       kind: "llm",
