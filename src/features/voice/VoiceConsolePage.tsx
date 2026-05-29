@@ -1,7 +1,13 @@
-import { useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 
-import { createVoiceSocket, reduceVoiceEvent, type VoiceSocketClient, type VoiceState } from "@/client/voiceSocket";
+import {
+  createVoiceSocket,
+  reduceVoiceEvent,
+  type VoiceSocketClient,
+  type VoiceState,
+  type VoiceStatus,
+} from "@/client/voiceSocket";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,25 +26,90 @@ export function VoiceConsolePage() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<VoiceSocketClient | null>(null);
+  const activeSessionIdRef = useRef<number | null>(null);
+  const nextSessionIdRef = useRef(0);
+  const isCleaningUpRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   const error = localError ?? voiceState.error;
   const isRecording = voiceState.status !== "idle" && voiceState.status !== "stopped" && voiceState.status !== "failed";
 
+  const cleanupSession = useCallback(
+    ({
+      status = "stopped",
+      reason = null,
+      updateState = true,
+    }: {
+      status?: Extract<VoiceStatus, "stopped" | "failed">;
+      reason?: string | null;
+      updateState?: boolean;
+    } = {}) => {
+      if (isCleaningUpRef.current) {
+        return;
+      }
+
+      isCleaningUpRef.current = true;
+      activeSessionIdRef.current = null;
+
+      const recorder = recorderRef.current;
+      recorderRef.current = null;
+      if (recorder && recorder.state !== "inactive") {
+        try {
+          recorder.stop();
+        } catch {
+          // The recorder may already be stopping; cleanup continues for the socket and tracks.
+        }
+      }
+
+      const socket = socketRef.current;
+      socketRef.current = null;
+      socket?.close();
+
+      stopStream(streamRef.current);
+      streamRef.current = null;
+
+      if (updateState && isMountedRef.current) {
+        setLocalError(reason);
+        dispatchVoiceEvent({ type: "status", status, reason: reason ?? undefined });
+      }
+
+      isCleaningUpRef.current = false;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      cleanupSession({ updateState: false });
+    };
+  }, [cleanupSession]);
+
   async function startSession() {
     setLocalError(null);
     dispatchVoiceEvent({ type: "status", status: "connecting" });
+    const sessionId = nextSessionIdRef.current + 1;
+    nextSessionIdRef.current = sessionId;
+    activeSessionIdRef.current = sessionId;
 
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      failSession("mic_permission_denied");
+      if (activeSessionIdRef.current === sessionId) {
+        cleanupSession({ status: "failed", reason: "mic_permission_denied" });
+      }
+      return;
+    }
+
+    if (activeSessionIdRef.current !== sessionId) {
+      stopStream(stream);
       return;
     }
 
     if (typeof MediaRecorder === "undefined") {
-      stopStream(stream);
-      failSession("media_recorder_unsupported");
+      streamRef.current = stream;
+      cleanupSession({ status: "failed", reason: "media_recorder_unsupported" });
       return;
     }
 
@@ -51,31 +122,32 @@ export function VoiceConsolePage() {
         dispatchVoiceEvent(event);
       },
       onError(reason) {
-        setLocalError(reason);
+        cleanupSession({ status: "failed", reason });
+      },
+      onClose() {
+        cleanupSession({ status: "stopped" });
       },
     });
     socketRef.current = socket;
 
-    const recorder = new MediaRecorder(stream);
-    recorderRef.current = recorder;
-    recorder.ondataavailable = (event) => {
-      if (event.data.size === 0) {
-        return;
-      }
+    try {
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size === 0) {
+          return;
+        }
 
-      void sendRecordedBlob(event.data);
-    };
-    recorder.start(1000);
+        void sendRecordedBlob(event.data);
+      };
+      recorder.start(1000);
+    } catch {
+      cleanupSession({ status: "failed", reason: "media_recorder_failed" });
+    }
   }
 
   function stopSession() {
-    recorderRef.current?.stop();
-    recorderRef.current = null;
-    socketRef.current?.close();
-    socketRef.current = null;
-    stopStream(streamRef.current);
-    streamRef.current = null;
-    dispatchVoiceEvent({ type: "status", status: "stopped" });
+    cleanupSession({ status: "stopped" });
   }
 
   async function sendRecordedBlob(blob: Blob) {
@@ -85,11 +157,6 @@ export function VoiceConsolePage() {
       mimeType: blob.type || "audio/webm",
       audioBase64,
     });
-  }
-
-  function failSession(reason: string) {
-    setLocalError(reason);
-    dispatchVoiceEvent({ type: "status", status: "failed", reason });
   }
 
   return (
