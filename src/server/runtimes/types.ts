@@ -22,3 +22,7 @@ export interface TtsAdapter {
   health(): Promise<RuntimeHealthResult>;
   synthesize(input: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: "audio/wav" }>;
 }
+
+export interface VadAdapter {
+  detect(frames: Float32Array[]): { hasSpeech: boolean; peak: number };
+}

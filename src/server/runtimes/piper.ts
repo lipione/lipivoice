@@ -38,7 +38,7 @@ export class PiperAdapter implements TtsAdapter {
     const outPath = join(tempDir, "speech.wav");
 
     try {
-      await this.runner(this.binPath, ["--model", input.voicePath || this.voicePath, "--output_file", outPath], {
+      await this.runner(this.binPath, ["--model", this.voicePath, "--output_file", outPath], {
         input: input.text,
       });
 

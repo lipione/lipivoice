@@ -73,6 +73,14 @@ export class OllamaAdapter implements LlmAdapter {
     }
 
     const body = (await response.json()) as OllamaChatResponse;
-    return body.message?.content ?? body.response ?? "";
+    if (typeof body.message?.content === "string") {
+      return body.message.content;
+    }
+
+    if (typeof body.response === "string") {
+      return body.response;
+    }
+
+    throw new Error("Ollama chat response did not include message content");
   }
 }
