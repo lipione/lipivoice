@@ -7,6 +7,7 @@ import { EvalsPage } from "@/features/evals/EvalsPage";
 import { KnowledgeBasePage } from "@/features/knowledge/KnowledgeBasePage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
 import { ToolsPage } from "@/features/tools/ToolsPage";
 import { UsagePage } from "@/features/usage/UsagePage";
@@ -39,6 +40,8 @@ export function App() {
         <EvalsPage />
       ) : activePage === "voice-lab" ? (
         <VoiceLabPage />
+      ) : activePage === "settings" ? (
+        <SettingsPage />
       ) : (
         <section className="mx-auto w-full max-w-4xl">
           <Card>

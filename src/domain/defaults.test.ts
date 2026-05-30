@@ -9,6 +9,7 @@ import {
   modelRuntimeSchema,
   phoneNumberSchema,
   voiceSchema,
+  workspaceSettingsSchema,
 } from "./schemas";
 
 describe("domain defaults", () => {
@@ -46,6 +47,8 @@ describe("domain defaults", () => {
     for (const evalDefinition of workspace.evals) {
       expect(() => evalDefinitionSchema.parse(evalDefinition)).not.toThrow();
     }
+
+    expect(() => workspaceSettingsSchema.parse(workspace.settings)).not.toThrow();
   });
 
   it("seeds agents with existing runtime, model, and voice references", () => {

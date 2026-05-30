@@ -250,6 +250,24 @@ describe("repositories", () => {
     expect(repos.evalRuns.listForEval(definition.id)).toHaveLength(2);
   });
 
+  it("persists workspace settings", () => {
+    const settings = repos.settings.get();
+
+    repos.settings.save({
+      ...settings,
+      workspaceName: "Production",
+      allowPrivateToolUrls: true,
+      recordingRetentionDays: 14,
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(repos.settings.get()).toMatchObject({
+      workspaceName: "Production",
+      allowPrivateToolUrls: true,
+      recordingRetentionDays: 14,
+    });
+  });
+
   it("preserves existing records when seeding defaults again", () => {
     const agent = repos.agents.list()[0];
     repos.agents.save({ ...agent, name: "Locally Edited Agent" });

@@ -9,6 +9,7 @@ import {
   phoneNumberSchema,
   toolExecutionLogSchema,
   toolSchema,
+  workspaceSettingsSchema,
 } from "./schemas";
 
 describe("domain schemas", () => {
@@ -177,5 +178,23 @@ describe("domain schemas", () => {
 
     expect(definition.cases[0]?.checks[0]?.value).toBe("LipiVoice");
     expect(run.score).toBe(100);
+  });
+
+  it("accepts workspace security settings", () => {
+    const settings = workspaceSettingsSchema.parse({
+      id: "workspace_settings",
+      workspaceName: "LipiVoice",
+      publicBaseUrl: "https://voice.example.com",
+      allowedOrigins: ["https://voice.example.com", "http://127.0.0.1:8787"],
+      allowPrivateToolUrls: false,
+      redactToolSecrets: true,
+      recordingRetentionDays: 30,
+      auditLogRetentionDays: 90,
+      realtimeSessionTtlSeconds: 60,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(settings.allowPrivateToolUrls).toBe(false);
   });
 });

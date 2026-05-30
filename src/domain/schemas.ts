@@ -193,6 +193,22 @@ export const knowledgeSearchResultSchema = z.object({
   score: z.number().min(0),
 });
 
+const urlOrEmptySchema = z.union([z.string().url(), z.literal("")]);
+
+export const workspaceSettingsSchema = z.object({
+  id: z.literal("workspace_settings"),
+  workspaceName: z.string().min(1),
+  publicBaseUrl: urlOrEmptySchema,
+  allowedOrigins: z.array(urlOrEmptySchema),
+  allowPrivateToolUrls: z.boolean(),
+  redactToolSecrets: z.boolean(),
+  recordingRetentionDays: z.number().int().min(1).max(3650),
+  auditLogRetentionDays: z.number().int().min(1).max(3650),
+  realtimeSessionTtlSeconds: z.number().int().min(15).max(3600),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
 export const evalCheckSchema = z.object({
   type: z.enum(["includes", "excludes"]),
   value: z.string().min(1),

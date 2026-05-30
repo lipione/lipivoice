@@ -15,6 +15,7 @@ import {
   toolExecutionLogSchema,
   toolSchema,
   voiceSchema,
+  workspaceSettingsSchema,
 } from "@/domain/schemas";
 import type {
   Agent,
@@ -30,6 +31,7 @@ import type {
   Tool,
   ToolExecutionLog,
   Voice,
+  WorkspaceSettings,
 } from "@/domain/types";
 import type { DatabaseConnection } from "./database";
 
@@ -42,6 +44,7 @@ type TableName =
   | "phone_numbers"
   | "knowledge_bases"
   | "evals"
+  | "settings"
   | "calls";
 
 type StoredRow = {
@@ -92,6 +95,10 @@ export interface Repositories {
     list(): EvalRun[];
     listForEval(evalId: string): EvalRun[];
   };
+  settings: {
+    get(): WorkspaceSettings;
+    save(settings: WorkspaceSettings): WorkspaceSettings;
+  };
   toolExecutions: {
     append(input: Omit<ToolExecutionLog, "id">): ToolExecutionLog;
     list(): ToolExecutionLog[];
@@ -123,6 +130,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
   const phoneNumbers = createJsonRepository(db, "phone_numbers", phoneNumberSchema.parse);
   const knowledgeBases = createJsonRepository(db, "knowledge_bases", knowledgeBaseSchema.parse);
   const evals = createJsonRepository(db, "evals", evalDefinitionSchema.parse);
+  const settings = createJsonRepository(db, "settings", workspaceSettingsSchema.parse);
   const calls = createJsonRepository(db, "calls", callSchema.parse);
 
   return {
@@ -219,6 +227,17 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           .map((row) => evalRunSchema.parse(JSON.parse((row as StoredRow).data)));
       },
     },
+    settings: {
+      get() {
+        const currentSettings = settings.get("workspace_settings");
+        if (!currentSettings) {
+          throw new Error("workspace_settings_not_seeded");
+        }
+
+        return currentSettings;
+      },
+      save: settings.save,
+    },
     toolExecutions: {
       append(input) {
         const log = toolExecutionLogSchema.parse({
@@ -306,6 +325,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           );
         });
         seed.evals.forEach(evals.insertMissing);
+        settings.insertMissing(seed.settings);
       });
 
       transaction();

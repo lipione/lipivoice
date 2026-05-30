@@ -8,6 +8,7 @@ import type {
   PhoneNumber,
   Tool,
   Voice,
+  WorkspaceSettings,
 } from "./types";
 
 interface RemoteWorkspaceOptions {
@@ -27,6 +28,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   knowledgeBases: KnowledgeBase[];
   knowledgeDocuments: KnowledgeDocument[];
   evals: EvalDefinition[];
+  settings: WorkspaceSettings;
 } {
   return {
     agents: [
@@ -181,6 +183,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
     knowledgeBases: createSeedKnowledgeBases(now),
     knowledgeDocuments: createSeedKnowledgeDocuments(now),
     evals: createSeedEvals(now),
+    settings: createSeedSettings(now),
   };
 }
 
@@ -194,6 +197,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   knowledgeBases: KnowledgeBase[];
   knowledgeDocuments: KnowledgeDocument[];
   evals: EvalDefinition[];
+  settings: WorkspaceSettings;
 } {
   const now = options.now ?? new Date().toISOString();
   const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
@@ -363,6 +367,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
     knowledgeBases: createSeedKnowledgeBases(now),
     knowledgeDocuments: createSeedKnowledgeDocuments(now),
     evals: createSeedEvals(now),
+    settings: createSeedSettings(now),
   };
 }
 
@@ -450,6 +455,22 @@ function createSeedEvals(now: string): EvalDefinition[] {
       updatedAt: now,
     },
   ];
+}
+
+function createSeedSettings(now: string): WorkspaceSettings {
+  return {
+    id: "workspace_settings",
+    workspaceName: "LipiVoice",
+    publicBaseUrl: "http://127.0.0.1:8787",
+    allowedOrigins: ["http://127.0.0.1:8787"],
+    allowPrivateToolUrls: false,
+    redactToolSecrets: true,
+    recordingRetentionDays: 30,
+    auditLogRetentionDays: 90,
+    realtimeSessionTtlSeconds: 60,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 function trimTrailingSlash(value: string): string {

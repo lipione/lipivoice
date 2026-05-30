@@ -185,6 +185,20 @@ export interface UsageSummary {
   knowledgeDocuments: number;
 }
 
+export interface WorkspaceSettings {
+  id: "workspace_settings";
+  workspaceName: string;
+  publicBaseUrl: string;
+  allowedOrigins: string[];
+  allowPrivateToolUrls: boolean;
+  redactToolSecrets: boolean;
+  recordingRetentionDays: number;
+  auditLogRetentionDays: number;
+  realtimeSessionTtlSeconds: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EvalCheck {
   type: "includes" | "excludes";
   value: string;

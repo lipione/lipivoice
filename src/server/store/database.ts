@@ -65,6 +65,11 @@ function runMigrations(db: DatabaseConnection): void {
       data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS eval_runs (
       id TEXT PRIMARY KEY,
       eval_id TEXT NOT NULL,

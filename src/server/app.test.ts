@@ -245,6 +245,94 @@ describe("server app", () => {
     expect(runs.body[0]).toMatchObject({ id: run.body.id, status: "passed" });
   });
 
+  it("returns and saves workspace settings", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+    const current = await request(app).get("/api/settings").expect(200);
+
+    const saved = await request(app)
+      .post("/api/settings")
+      .send({
+        ...current.body,
+        workspaceName: "Production",
+        publicBaseUrl: "https://voice.example.com",
+        allowedOrigins: ["https://voice.example.com"],
+        allowPrivateToolUrls: true,
+        recordingRetentionDays: 14,
+        updatedAt: "2026-05-31T00:00:01.000Z",
+      })
+      .expect(200);
+
+    expect(current.body).toMatchObject({
+      id: "workspace_settings",
+      workspaceName: "LipiVoice",
+      allowPrivateToolUrls: false,
+      redactToolSecrets: true,
+    });
+    expect(saved.body).toMatchObject({
+      workspaceName: "Production",
+      publicBaseUrl: "https://voice.example.com",
+      allowPrivateToolUrls: true,
+      recordingRetentionDays: 14,
+    });
+  });
+
+  it("returns lightweight health without probing model runtimes", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:01.000Z"),
+    });
+
+    const response = await request(app).get("/api/health").expect(200);
+
+    expect(response.body).toEqual({
+      status: "ok",
+      timestamp: "2026-05-31T00:00:01.000Z",
+      storage: "ok",
+      settingsLoaded: true,
+    });
+  });
+
+  it("uses workspace settings for private tool URL policy", async () => {
+    const fetchImpl = vi.fn(async () => new Response("ok", { status: 200 }));
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      toolFetch: fetchImpl,
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const tool = {
+      id: "tool_local_probe",
+      name: "Local probe",
+      description: "Calls a trusted local service.",
+      method: "GET",
+      url: "http://127.0.0.1:5001/internal/{id}",
+      authMode: "none",
+      headers: [],
+      parameters: [{ name: "id", type: "string", required: true }],
+      timeoutMs: 5000,
+      retryCount: 0,
+      responseSchema: "{}",
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    };
+    await request(context.app).post("/api/tools").send(tool).expect(200);
+
+    const blocked = await request(context.app)
+      .post("/api/tools/execute")
+      .send({ toolId: "tool_local_probe", arguments: { id: "health" } })
+      .expect(200);
+    const settings = await request(context.app).get("/api/settings").expect(200);
+    await request(context.app)
+      .post("/api/settings")
+      .send({ ...settings.body, allowPrivateToolUrls: true })
+      .expect(200);
+    const allowed = await request(context.app)
+      .post("/api/tools/execute")
+      .send({ toolId: "tool_local_probe", arguments: { id: "health" } })
+      .expect(200);
+
+    expect(blocked.body).toMatchObject({ ok: false, error: "unsafe_tool_url", attempts: 0 });
+    expect(allowed.body).toMatchObject({ ok: true, status: 200 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("saves valid tool definitions and rejects invalid tools", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const validTool = {

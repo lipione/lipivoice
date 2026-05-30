@@ -10,6 +10,7 @@ import {
   knowledgeDocumentSchema,
   phoneNumberSchema,
   toolSchema,
+  workspaceSettingsSchema,
 } from "@/domain/schemas";
 import type {
   Agent,
@@ -20,6 +21,7 @@ import type {
   EvalRun,
   RuntimeAdapter,
   UsageSummary,
+  WorkspaceSettings,
 } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
@@ -318,7 +320,7 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
 
       const result = await executeTool(tool, args, {
         fetchImpl: deps.toolFetch,
-        allowPrivateUrls: deps.allowPrivateToolUrls,
+        allowPrivateUrls: deps.allowPrivateToolUrls ?? repositories.settings.get().allowPrivateToolUrls,
       });
       const log = repositories.toolExecutions.append({
         ...result,
@@ -359,6 +361,30 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
 
   app.post("/api/realtime/session", (_request, response) => {
     response.status(201).json(realtimeSessions.createSession());
+  });
+
+  app.get("/api/health", (_request, response) => {
+    response.json({
+      status: "ok",
+      timestamp: currentTimestamp(deps.now),
+      storage: "ok",
+      settingsLoaded: Boolean(repositories.settings.get()),
+    });
+  });
+
+  app.get("/api/settings", (_request, response) => {
+    response.json(repositories.settings.get());
+  });
+
+  app.post("/api/settings", (request, response) => {
+    const result = workspaceSettingsSchema.safeParse(request.body);
+
+    if (!result.success) {
+      response.status(400).json({ code: "invalid_settings" });
+      return;
+    }
+
+    response.json(repositories.settings.save(normalizeSettings(result.data)));
   });
 
   app.get("/api/usage", (_request, response) => {
@@ -709,6 +735,17 @@ function createEvalRecommendation(checkResults: Array<EvalCheck & { passed: bool
   }
 
   return "Review the agent prompt and expected checks.";
+}
+
+function normalizeSettings(settings: WorkspaceSettings): WorkspaceSettings {
+  return {
+    ...settings,
+    workspaceName: settings.workspaceName.trim(),
+    publicBaseUrl: settings.publicBaseUrl.trim(),
+    allowedOrigins: Array.from(
+      new Set(settings.allowedOrigins.map((origin) => origin.trim()).filter(Boolean)),
+    ),
+  };
 }
 
 function createUsageSummary(repositories: Repositories): UsageSummary {
