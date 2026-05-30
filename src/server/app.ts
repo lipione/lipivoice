@@ -139,6 +139,10 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.json(repositories.voices.list());
   });
 
+  app.get("/api/voice-samples", (_request, response) => {
+    response.json(repositories.voiceSamples.list());
+  });
+
   app.get("/api/tools", (_request, response) => {
     response.json(repositories.tools.list());
   });
@@ -524,7 +528,17 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
-      response.json(await deps.tts.synthesize({ text, voicePath: voiceId }));
+      const synthesized = await deps.tts.synthesize({ text, voicePath: voiceId });
+      const sample = repositories.voiceSamples.append({
+        voiceId: voice.id,
+        voiceName: voice.name,
+        text,
+        audioBase64: synthesized.audioBase64,
+        mimeType: synthesized.mimeType,
+        createdAt: currentTimestamp(deps.now),
+      });
+
+      response.json(sample);
     } catch (error) {
       next(error);
     }

@@ -9,6 +9,7 @@ import {
   phoneNumberSchema,
   toolExecutionLogSchema,
   toolSchema,
+  voiceSampleSchema,
   workspaceSettingsSchema,
 } from "./schemas";
 
@@ -196,5 +197,19 @@ describe("domain schemas", () => {
     });
 
     expect(settings.allowPrivateToolUrls).toBe(false);
+  });
+
+  it("accepts generated voice samples", () => {
+    const sample = voiceSampleSchema.parse({
+      id: "voice_sample_1",
+      voiceId: "voice_lipi_ml_en",
+      voiceName: "Lipi ML English",
+      text: "Hello from LipiVoice.",
+      audioBase64: "UklGRg==",
+      mimeType: "audio/wav",
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(sample.voiceName).toBe("Lipi ML English");
   });
 });

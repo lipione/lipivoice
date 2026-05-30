@@ -591,7 +591,44 @@ describe("server app", () => {
       .send({ text: "Hello", voiceId: "voice_piper_amy" })
       .expect(200);
 
-    expect(response.body).toEqual({ audioBase64: "SGVsbG8=", mimeType: "audio/wav" });
+    expect(response.body).toMatchObject({
+      voiceId: "voice_piper_amy",
+      voiceName: "Piper Amy",
+      text: "Hello",
+      audioBase64: "SGVsbG8=",
+      mimeType: "audio/wav",
+      createdAt: expect.any(String),
+    });
+  });
+
+  it("stores generated voice samples", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+      tts: {
+        health: async () => ({ status: "healthy", reason: null }),
+        synthesize: async () => ({
+          audioBase64: "UklGRg==",
+          mimeType: "audio/wav",
+        }),
+      },
+    });
+
+    const generated = await request(context.app)
+      .post("/api/tts/generate")
+      .send({ text: "Hello history", voiceId: "voice_piper_amy" })
+      .expect(200);
+    const samples = await request(context.app).get("/api/voice-samples").expect(200);
+
+    expect(generated.body).toMatchObject({
+      id: expect.any(String),
+      voiceId: "voice_piper_amy",
+      voiceName: "Piper Amy",
+      text: "Hello history",
+      audioBase64: "UklGRg==",
+      mimeType: "audio/wav",
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+    expect(samples.body[0]).toMatchObject({ id: generated.body.id, text: "Hello history" });
   });
 
   it("rejects unknown TTS voices before synthesizing", async () => {

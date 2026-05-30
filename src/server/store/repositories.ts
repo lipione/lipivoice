@@ -15,6 +15,7 @@ import {
   toolExecutionLogSchema,
   toolSchema,
   voiceSchema,
+  voiceSampleSchema,
   workspaceSettingsSchema,
 } from "@/domain/schemas";
 import type {
@@ -31,6 +32,7 @@ import type {
   Tool,
   ToolExecutionLog,
   Voice,
+  VoiceSample,
   WorkspaceSettings,
 } from "@/domain/types";
 import type { DatabaseConnection } from "./database";
@@ -64,6 +66,10 @@ export interface Repositories {
   voices: {
     list(): Voice[];
     get(id: string): Voice | null;
+  };
+  voiceSamples: {
+    append(input: Omit<VoiceSample, "id">): VoiceSample;
+    list(): VoiceSample[];
   };
   tools: {
     list(): Tool[];
@@ -146,6 +152,26 @@ export function createRepositories(db: DatabaseConnection): Repositories {
     voices: {
       list: voices.list,
       get: voices.get,
+    },
+    voiceSamples: {
+      append(input) {
+        const sample = voiceSampleSchema.parse({
+          id: nanoid(),
+          ...input,
+        });
+
+        db.prepare(
+          "INSERT INTO voice_samples (id, created_at, data) VALUES (?, ?, ?)",
+        ).run(sample.id, sample.createdAt, JSON.stringify(sample));
+
+        return sample;
+      },
+      list() {
+        return db
+          .prepare("SELECT data FROM voice_samples ORDER BY created_at DESC, id DESC")
+          .all()
+          .map((row) => voiceSampleSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
     },
     tools: {
       list: tools.list,
@@ -312,6 +338,14 @@ export function createRepositories(db: DatabaseConnection): Repositories {
         seed.modelRuntimes.forEach(runtimes.insertMissing);
         seed.modelAssets.forEach(modelAssets.insertMissing);
         seed.voices.forEach(voices.insertMissing);
+        seed.voiceSamples.forEach((sample) => {
+          const parsed = voiceSampleSchema.parse(sample);
+          db.prepare("INSERT OR IGNORE INTO voice_samples (id, created_at, data) VALUES (?, ?, ?)").run(
+            parsed.id,
+            parsed.createdAt,
+            JSON.stringify(parsed),
+          );
+        });
         const seedWithTools = seed as ReturnType<typeof createDefaultWorkspace> & { tools?: Tool[] };
         seedWithTools.tools?.forEach(tools.insertMissing);
         seed.phoneNumbers.forEach(phoneNumbers.insertMissing);

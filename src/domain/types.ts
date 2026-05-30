@@ -92,6 +92,16 @@ export interface Voice {
   consentId: string | null;
 }
 
+export interface VoiceSample {
+  id: string;
+  voiceId: string;
+  voiceName: string;
+  text: string;
+  audioBase64: string;
+  mimeType: string;
+  createdAt: string;
+}
+
 export interface Tool {
   id: string;
   name: string;

@@ -9,6 +9,7 @@ import {
   modelRuntimeSchema,
   phoneNumberSchema,
   voiceSchema,
+  voiceSampleSchema,
   workspaceSettingsSchema,
 } from "./schemas";
 
@@ -30,6 +31,10 @@ describe("domain defaults", () => {
 
     for (const voice of workspace.voices) {
       expect(() => voiceSchema.parse(voice)).not.toThrow();
+    }
+
+    for (const voiceSample of workspace.voiceSamples) {
+      expect(() => voiceSampleSchema.parse(voiceSample)).not.toThrow();
     }
 
     for (const phoneNumber of workspace.phoneNumbers) {

@@ -8,6 +8,7 @@ import type {
   PhoneNumber,
   Tool,
   Voice,
+  VoiceSample,
   WorkspaceSettings,
 } from "./types";
 
@@ -23,6 +24,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   modelRuntimes: ModelRuntime[];
   modelAssets: ModelAsset[];
   voices: Voice[];
+  voiceSamples: VoiceSample[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
@@ -178,6 +180,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
         consentId: null,
       },
     ],
+    voiceSamples: [],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),
@@ -192,6 +195,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   modelRuntimes: ModelRuntime[];
   modelAssets: ModelAsset[];
   voices: Voice[];
+  voiceSamples: VoiceSample[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
@@ -362,6 +366,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
         consentId: null,
       },
     ],
+    voiceSamples: [],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),

@@ -268,6 +268,30 @@ describe("repositories", () => {
     });
   });
 
+  it("persists generated voice samples newest-first", () => {
+    repos.voiceSamples.append({
+      voiceId: "voice_piper_amy",
+      voiceName: "Piper Amy",
+      text: "First sample",
+      audioBase64: "UklGRg==",
+      mimeType: "audio/wav",
+      createdAt: "2026-05-31T00:00:01.000Z",
+    });
+    repos.voiceSamples.append({
+      voiceId: "voice_piper_amy",
+      voiceName: "Piper Amy",
+      text: "Second sample",
+      audioBase64: "UklGRw==",
+      mimeType: "audio/wav",
+      createdAt: "2026-05-31T00:00:03.000Z",
+    });
+
+    expect(repos.voiceSamples.list().map((sample) => sample.text)).toEqual([
+      "Second sample",
+      "First sample",
+    ]);
+  });
+
   it("preserves existing records when seeding defaults again", () => {
     const agent = repos.agents.list()[0];
     repos.agents.save({ ...agent, name: "Locally Edited Agent" });

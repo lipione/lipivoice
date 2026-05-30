@@ -99,6 +99,16 @@ export const voiceSchema = z.object({
   consentId: z.string().nullable(),
 });
 
+export const voiceSampleSchema = z.object({
+  id: z.string().min(1),
+  voiceId: z.string().min(1),
+  voiceName: z.string().min(1),
+  text: z.string().min(1),
+  audioBase64: z.string().min(1),
+  mimeType: z.string().min(1),
+  createdAt: isoDateSchema,
+});
+
 export const toolSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),

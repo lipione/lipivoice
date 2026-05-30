@@ -138,7 +138,9 @@ describe("VoiceLabPage", () => {
                 consentId: null,
               },
             ])
-          : speech.promise,
+          : String(input) === "/api/voice-samples"
+            ? Response.json([])
+            : speech.promise,
       ),
     );
 
@@ -152,5 +154,65 @@ describe("VoiceLabPage", () => {
     speech.resolve(Response.json({ audioBase64: "UklGRg==", mimeType: "audio/wav" }));
 
     expect(await screen.findByText('Generated from "Hello" with Lipi ML English')).toBeInTheDocument();
+  });
+
+  it("loads sample history and prepends generated clips", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === "/api/voices") {
+          return Response.json([
+            {
+              id: "voice_lipi_ml_en",
+              name: "Lipi ML English",
+              runtimeId: "runtime_lipi_ml_tts",
+              type: "builtin",
+              language: "en-US",
+              tags: [],
+              previewUrl: "",
+              privacy: "workspace",
+              cloneStatus: "not_clone",
+              consentId: null,
+            },
+          ]);
+        }
+
+        if (url === "/api/voice-samples") {
+          return Response.json([
+            {
+              id: "sample_old",
+              voiceId: "voice_lipi_ml_en",
+              voiceName: "Lipi ML English",
+              text: "Previous sample",
+              audioBase64: "UklGRg==",
+              mimeType: "audio/wav",
+              createdAt: "2026-05-31T00:00:00.000Z",
+            },
+          ]);
+        }
+
+        return Response.json({
+          id: "sample_new",
+          voiceId: "voice_lipi_ml_en",
+          voiceName: "Lipi ML English",
+          text: "New clip",
+          audioBase64: "UklGRw==",
+          mimeType: "audio/wav",
+          createdAt: "2026-05-31T00:01:00.000Z",
+        });
+      }),
+    );
+
+    render(<VoiceLabPage />);
+
+    expect(await screen.findByText("Previous sample")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Text"), "New clip");
+    await user.click(screen.getByRole("button", { name: "Generate speech" }));
+
+    expect(await screen.findByText('Generated from "New clip" with Lipi ML English')).toBeInTheDocument();
+    expect(screen.getAllByText("New clip").length).toBeGreaterThan(0);
   });
 });
