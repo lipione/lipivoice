@@ -43,6 +43,49 @@ describe("server app", () => {
     );
   });
 
+  it("returns a local usage summary", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+    const agent = context.repositories.agents.list()[0];
+    context.repositories.calls.update({
+      ...context.repositories.calls.create({
+        channel: "web",
+        direction: "inbound",
+        agentId: agent.id,
+        status: "disconnected",
+        startedAt: "2026-05-31T00:00:00.000Z",
+      }),
+      endedAt: "2026-05-31T00:02:00.000Z",
+      durationSeconds: 120,
+      costEstimateUsd: 0.15,
+    });
+    context.repositories.toolExecutions.append({
+      toolId: "tool_order_lookup",
+      toolName: "Order lookup",
+      timestamp: "2026-05-31T00:00:00.000Z",
+      ok: true,
+      status: 200,
+      attempts: 1,
+      durationMs: 20,
+      error: null,
+      request: { method: "GET", url: "https://example.com/orders/A123", headers: [] },
+      response: { body: "{\"status\":\"shipped\"}" },
+    });
+
+    const response = await request(context.app).get("/api/usage").expect(200);
+
+    expect(response.body).toEqual({
+      agents: 1,
+      phoneNumbers: 1,
+      callsTotal: 1,
+      activeCalls: 0,
+      callMinutes: 2,
+      estimatedCostUsd: 0.15,
+      toolExecutions: 1,
+      knowledgeBases: 1,
+      knowledgeDocuments: 1,
+    });
+  });
+
   it("creates a simulated call with an initial event", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const agentId = (await request(app).get("/api/agents")).body[0].id;

@@ -172,6 +172,18 @@ export interface KnowledgeSearchResult {
   score: number;
 }
 
+export interface UsageSummary {
+  agents: number;
+  phoneNumbers: number;
+  callsTotal: number;
+  activeCalls: number;
+  callMinutes: number;
+  estimatedCostUsd: number;
+  toolExecutions: number;
+  knowledgeBases: number;
+  knowledgeDocuments: number;
+}
+
 export interface Call {
   id: string;
   channel: "web" | "phone" | "simulation";

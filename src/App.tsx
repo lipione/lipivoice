@@ -8,6 +8,7 @@ import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
 import { ToolsPage } from "@/features/tools/ToolsPage";
+import { UsagePage } from "@/features/usage/UsagePage";
 import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
 import { VoiceConsolePage } from "@/features/voice/VoiceConsolePage";
 
@@ -31,6 +32,8 @@ export function App() {
         <ToolsPage />
       ) : activePage === "knowledge" ? (
         <KnowledgeBasePage />
+      ) : activePage === "usage" ? (
+        <UsagePage />
       ) : activePage === "voice-lab" ? (
         <VoiceLabPage />
       ) : (

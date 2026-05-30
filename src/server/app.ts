@@ -10,7 +10,7 @@ import {
   phoneNumberSchema,
   toolSchema,
 } from "@/domain/schemas";
-import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
+import type { ConfiguredState, RuntimeAdapter, UsageSummary } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
@@ -303,6 +303,10 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.status(201).json(realtimeSessions.createSession());
   });
 
+  app.get("/api/usage", (_request, response) => {
+    response.json(createUsageSummary(repositories));
+  });
+
   app.get("/api/calls", (_request, response) => {
     response.json(repositories.calls.list());
   });
@@ -571,6 +575,41 @@ function createKnowledgeDocumentId(title: string) {
     .replace(/^_+|_+$/g, "");
 
   return `doc_${slug || Date.now()}`;
+}
+
+function createUsageSummary(repositories: Repositories): UsageSummary {
+  const calls = repositories.calls.list();
+  const knowledgeBases = repositories.knowledgeBases.list();
+  const knowledgeDocuments = knowledgeBases.reduce(
+    (count, knowledgeBase) =>
+      count + repositories.knowledgeDocuments.listForKnowledgeBase(knowledgeBase.id).length,
+    0,
+  );
+  const activeCalls = calls.filter(
+    (call) => !call.endedAt && call.status !== "disconnected" && call.status !== "failed",
+  ).length;
+  const callMinutes = roundUsageNumber(
+    calls.reduce((totalSeconds, call) => totalSeconds + call.durationSeconds, 0) / 60,
+  );
+  const estimatedCostUsd = roundUsageNumber(
+    calls.reduce((totalCost, call) => totalCost + call.costEstimateUsd, 0),
+  );
+
+  return {
+    agents: repositories.agents.list().length,
+    phoneNumbers: repositories.phoneNumbers.list().length,
+    callsTotal: calls.length,
+    activeCalls,
+    callMinutes,
+    estimatedCostUsd,
+    toolExecutions: repositories.toolExecutions.list().length,
+    knowledgeBases: knowledgeBases.length,
+    knowledgeDocuments,
+  };
+}
+
+function roundUsageNumber(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
