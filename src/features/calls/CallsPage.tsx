@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, ListChecks, MessageSquareText, PhoneOff } from "lucide-react";
+import { Clock, ListChecks, MessageSquareText, PhoneCall, PhoneOff } from "lucide-react";
 
 import { getJson, postJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Call, CallEvent } from "@/domain/types";
+import { Label } from "@/components/ui/label";
+import type { Agent, Call, CallEvent } from "@/domain/types";
 import { cn } from "@/lib/utils";
 
 type CallRecord = Call;
@@ -72,15 +73,24 @@ function formatToolPayload(payload: Record<string, unknown>) {
   return parts.join(" · ");
 }
 
+function toAgentOptions(agents: Agent[]): Array<Pick<Agent, "id" | "name">> {
+  return agents
+    .filter((agent) => typeof agent.id === "string" && typeof agent.name === "string")
+    .map((agent) => ({ id: agent.id, name: agent.name }));
+}
+
 export function CallsPage() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [agents, setAgents] = useState<Pick<Agent, "id" | "name">[]>([]);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [events, setEvents] = useState<CallEvent[]>([]);
   const [isLoadingCalls, setIsLoadingCalls] = useState(true);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [callsError, setCallsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [endState, setEndState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [startState, setStartState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const eventRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -91,10 +101,16 @@ export function CallsPage() {
       setCallsError(null);
 
       try {
-        const nextCalls = await getJson<CallRecord[]>("/api/calls");
+        const [nextCalls, nextAgents] = await Promise.all([
+          getJson<CallRecord[]>("/api/calls"),
+          getJson<Agent[]>("/api/agents").catch(() => []),
+        ]);
         if (!isCurrent) return;
 
+        const agentOptions = toAgentOptions(nextAgents);
         setCalls(nextCalls);
+        setAgents(agentOptions);
+        setSelectedAgentId((currentAgentId) => currentAgentId || agentOptions[0]?.id || "");
         if (nextCalls[0]) {
           void selectCall(nextCalls[0].id);
         }
@@ -122,6 +138,32 @@ export function CallsPage() {
   );
   const transcriptEvents = events.filter((event) => event.type === "transcript");
   const debugEvents = events.filter((event) => event.type !== "transcript");
+
+  async function startSimulatedCall() {
+    if (!selectedAgentId) return;
+
+    eventRequestIdRef.current += 1;
+    setStartState("saving");
+    setEventsError(null);
+    setEvents([]);
+
+    try {
+      const result = await postJson<{ call: CallRecord; events: CallEvent[] }>("/api/calls/simulate", {
+        agentId: selectedAgentId,
+      });
+      setCalls((currentCalls) => [
+        result.call,
+        ...currentCalls.filter((currentCall) => currentCall.id !== result.call.id),
+      ]);
+      setSelectedCallId(result.call.id);
+      setEvents(result.events);
+      setIsLoadingEvents(false);
+      setEndState("idle");
+      setStartState("saved");
+    } catch {
+      setStartState("failed");
+    }
+  }
 
   async function selectCall(callId: string) {
     const requestId = eventRequestIdRef.current + 1;
@@ -211,6 +253,52 @@ export function CallsPage() {
         </div>
         <Badge variant="outline">{calls.length} recorded</Badge>
       </div>
+
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle>Simulation</CardTitle>
+            <CardDescription>Start an inbound local test call</CardDescription>
+          </div>
+          <Badge variant="secondary">{agents.length} agents</Badge>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div className="grid gap-2">
+            <Label htmlFor="simulate-agent">Agent</Label>
+            <select
+              id="simulate-agent"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={selectedAgentId}
+              onChange={(event) => {
+                setStartState("idle");
+                setSelectedAgentId(event.target.value);
+              }}
+            >
+              {agents.length === 0 ? <option value="">No agents available</option> : null}
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => void startSimulatedCall()}
+              disabled={!selectedAgentId || startState === "saving"}
+            >
+              <PhoneCall aria-hidden="true" />
+              {startState === "saving" ? "Starting..." : "Start simulated call"}
+            </Button>
+            {startState === "saved" ? (
+              <Badge variant="success">Call started</Badge>
+            ) : startState === "failed" ? (
+              <Badge variant="danger">Start failed</Badge>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
         <Card>

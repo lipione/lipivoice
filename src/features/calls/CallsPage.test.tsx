@@ -275,6 +275,68 @@ describe("CallsPage", () => {
     );
   });
 
+  it("starts a simulated call from the selected agent", async () => {
+    const user = userEvent.setup();
+    const simulatedCall = {
+      id: "call_sim_1",
+      status: "connected",
+      channel: "simulation",
+      direction: "inbound",
+      agentId: "agent_reception",
+      startedAt: "2026-05-31T00:00:00.000Z",
+      endedAt: null,
+      durationSeconds: 0,
+      costEstimateUsd: 0,
+      recordingUrl: null,
+      failureReason: null,
+    };
+    let simulationBody: Record<string, unknown> | null = null;
+    const fetchSpy = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/api/agents")) {
+        return Response.json([{ id: "agent_reception", name: "Reception Agent" }]);
+      }
+
+      if (url.endsWith("/api/calls/simulate") && init?.method === "POST") {
+        simulationBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return Response.json(
+          {
+            call: simulatedCall,
+            events: [
+              {
+                id: "event_connected",
+                callId: "call_sim_1",
+                timestamp: "2026-05-31T00:00:00.000Z",
+                type: "status",
+                actor: "system",
+                severity: "info",
+                payload: { status: "connected" },
+              },
+            ],
+          },
+          { status: 201 },
+        );
+      }
+
+      if (url.endsWith("/api/calls")) {
+        return Response.json([]);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<CallsPage />);
+
+    await screen.findByText("No calls recorded.");
+    await user.click(screen.getByRole("button", { name: "Start simulated call" }));
+
+    await waitFor(() => expect(simulationBody).toEqual({ agentId: "agent_reception" }));
+    expect(await screen.findByText("call_sim_1")).toBeInTheDocument();
+    expect(screen.getByText("inbound simulation")).toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no calls", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
 
