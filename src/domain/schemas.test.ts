@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agentSchema,
+  evalDefinitionSchema,
+  evalRunSchema,
   knowledgeBaseSchema,
   knowledgeDocumentSchema,
   modelRuntimeSchema,
@@ -135,5 +137,45 @@ describe("domain schemas", () => {
 
     expect(knowledgeBase.status).toBe("ready");
     expect(document.knowledgeBaseId).toBe("kb_reception");
+  });
+
+  it("accepts eval definitions and runs", () => {
+    const definition = evalDefinitionSchema.parse({
+      id: "eval_reception_greeting",
+      name: "Reception greeting",
+      description: "Checks the reception agent greeting.",
+      agentId: "agent_reception",
+      cases: [
+        {
+          id: "case_greeting",
+          input: "Say hello.",
+          checks: [{ type: "includes", value: "LipiVoice" }],
+        },
+      ],
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+    const run = evalRunSchema.parse({
+      id: "run_1",
+      evalId: "eval_reception_greeting",
+      agentId: "agent_reception",
+      status: "passed",
+      score: 100,
+      startedAt: "2026-05-31T00:00:00.000Z",
+      completedAt: "2026-05-31T00:00:01.000Z",
+      caseResults: [
+        {
+          caseId: "case_greeting",
+          input: "Say hello.",
+          response: "Hi, this is LipiVoice.",
+          passed: true,
+          checkResults: [{ type: "includes", value: "LipiVoice", passed: true }],
+          recommendation: null,
+        },
+      ],
+    });
+
+    expect(definition.cases[0]?.checks[0]?.value).toBe("LipiVoice");
+    expect(run.score).toBe(100);
   });
 });

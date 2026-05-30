@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultWorkspace, createRemoteWorkspace } from "./defaults";
 import {
   agentSchema,
+  evalDefinitionSchema,
   knowledgeBaseSchema,
   knowledgeDocumentSchema,
   modelAssetSchema,
@@ -40,6 +41,10 @@ describe("domain defaults", () => {
 
     for (const knowledgeDocument of workspace.knowledgeDocuments) {
       expect(() => knowledgeDocumentSchema.parse(knowledgeDocument)).not.toThrow();
+    }
+
+    for (const evalDefinition of workspace.evals) {
+      expect(() => evalDefinitionSchema.parse(evalDefinition)).not.toThrow();
     }
   });
 

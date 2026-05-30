@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsPage } from "@/features/agents/AgentsPage";
 import { CallsPage } from "@/features/calls/CallsPage";
+import { EvalsPage } from "@/features/evals/EvalsPage";
 import { KnowledgeBasePage } from "@/features/knowledge/KnowledgeBasePage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
@@ -34,6 +35,8 @@ export function App() {
         <KnowledgeBasePage />
       ) : activePage === "usage" ? (
         <UsagePage />
+      ) : activePage === "evals" ? (
+        <EvalsPage />
       ) : activePage === "voice-lab" ? (
         <VoiceLabPage />
       ) : (

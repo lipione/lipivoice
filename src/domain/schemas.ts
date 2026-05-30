@@ -36,6 +36,7 @@ export const runtimeHealthStatusSchema = z.enum([
 export const phoneNumberProviderSchema = z.enum(["simulation", "byo_sip", "twilio", "telnyx"]);
 export const phoneNumberStatusSchema = z.enum(["active", "pending", "disabled"]);
 export const knowledgeBaseStatusSchema = z.enum(["ready", "indexing", "failed"]);
+export const evalRunStatusSchema = z.enum(["passed", "failed"]);
 
 export const agentSchema = z.object({
   id: z.string().min(1),
@@ -190,6 +191,47 @@ export const knowledgeSearchResultSchema = z.object({
   title: z.string().min(1),
   snippet: z.string(),
   score: z.number().min(0),
+});
+
+export const evalCheckSchema = z.object({
+  type: z.enum(["includes", "excludes"]),
+  value: z.string().min(1),
+});
+
+export const evalDefinitionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  agentId: z.string().min(1),
+  cases: z.array(
+    z.object({
+      id: z.string().min(1),
+      input: z.string().min(1),
+      checks: z.array(evalCheckSchema).min(1),
+    }),
+  ).min(1),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const evalRunSchema = z.object({
+  id: z.string().min(1),
+  evalId: z.string().min(1),
+  agentId: z.string().min(1),
+  status: evalRunStatusSchema,
+  score: z.number().min(0).max(100),
+  startedAt: isoDateSchema,
+  completedAt: isoDateSchema,
+  caseResults: z.array(
+    z.object({
+      caseId: z.string().min(1),
+      input: z.string().min(1),
+      response: z.string(),
+      passed: z.boolean(),
+      checkResults: z.array(evalCheckSchema.extend({ passed: z.boolean() })),
+      recommendation: z.string().nullable(),
+    }),
+  ),
 });
 
 export const callSchema = z.object({

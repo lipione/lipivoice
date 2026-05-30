@@ -5,12 +5,22 @@ import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
 import {
   agentSchema,
+  evalDefinitionSchema,
   knowledgeBaseSchema,
   knowledgeDocumentSchema,
   phoneNumberSchema,
   toolSchema,
 } from "@/domain/schemas";
-import type { ConfiguredState, RuntimeAdapter, UsageSummary } from "@/domain/types";
+import type {
+  Agent,
+  ConfiguredState,
+  EvalCase,
+  EvalCheck,
+  EvalDefinition,
+  EvalRun,
+  RuntimeAdapter,
+  UsageSummary,
+} from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
@@ -25,6 +35,7 @@ import { executeTool } from "./tools/executor";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
 type RuntimeHealthChecks = Partial<Record<RuntimeAdapter, () => Promise<RuntimeHealthResult>>>;
+type EvalResponder = (input: { agent: Agent; evalCase: EvalCase }) => Promise<string>;
 
 interface AppDeps {
   tts?: TtsAdapter | null;
@@ -32,6 +43,7 @@ interface AppDeps {
   realtimeSessions?: RealtimeSessionStore;
   toolFetch?: typeof fetch;
   allowPrivateToolUrls?: boolean;
+  evalResponder?: EvalResponder;
   now?: () => Date;
 }
 
@@ -241,6 +253,52 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
 
     const query = typeof request.body?.query === "string" ? request.body.query : "";
     response.json(repositories.knowledgeDocuments.search(knowledgeBase.id, query));
+  });
+
+  app.get("/api/evals", (_request, response) => {
+    response.json(repositories.evals.list());
+  });
+
+  app.post("/api/evals", (request, response) => {
+    const result = evalDefinitionSchema.safeParse(request.body);
+
+    if (!result.success) {
+      response.status(400).json({ code: "invalid_eval" });
+      return;
+    }
+
+    if (!repositories.agents.get(result.data.agentId)) {
+      response.status(404).json({ code: "agent_not_found" });
+      return;
+    }
+
+    response.json(repositories.evals.save(result.data));
+  });
+
+  app.get("/api/evals/runs", (_request, response) => {
+    response.json(repositories.evalRuns.list());
+  });
+
+  app.post("/api/evals/:id/run", async (request, response, next) => {
+    try {
+      const evalDefinition = repositories.evals.get(request.params.id);
+
+      if (!evalDefinition) {
+        response.status(404).json({ code: "eval_not_found" });
+        return;
+      }
+
+      const agent = repositories.agents.get(evalDefinition.agentId);
+      if (!agent) {
+        response.status(404).json({ code: "agent_not_found" });
+        return;
+      }
+
+      const run = await runEval(evalDefinition, agent, deps);
+      response.status(201).json(repositories.evalRuns.append(run));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/tools/executions", (_request, response) => {
@@ -575,6 +633,82 @@ function createKnowledgeDocumentId(title: string) {
     .replace(/^_+|_+$/g, "");
 
   return `doc_${slug || Date.now()}`;
+}
+
+async function runEval(
+  evalDefinition: EvalDefinition,
+  agent: Agent,
+  deps: AppDeps,
+): Promise<Omit<EvalRun, "id">> {
+  const startedAt = currentTimestamp(deps.now);
+  const responder = deps.evalResponder ?? defaultEvalResponder;
+  const caseResults = await Promise.all(
+    evalDefinition.cases.map(async (evalCase) => {
+      const response = await responder({ agent, evalCase });
+      const checkResults = evalCase.checks.map((check) => evaluateCheck(check, response));
+      const passed = checkResults.every((checkResult) => checkResult.passed);
+
+      return {
+        caseId: evalCase.id,
+        input: evalCase.input,
+        response,
+        passed,
+        checkResults,
+        recommendation: passed ? null : createEvalRecommendation(checkResults),
+      };
+    }),
+  );
+  const totalChecks = caseResults.reduce((count, result) => count + result.checkResults.length, 0);
+  const passedChecks = caseResults.reduce(
+    (count, result) => count + result.checkResults.filter((checkResult) => checkResult.passed).length,
+    0,
+  );
+  const score = totalChecks === 0 ? 0 : Math.round((passedChecks / totalChecks) * 100);
+
+  return {
+    evalId: evalDefinition.id,
+    agentId: agent.id,
+    status: caseResults.every((result) => result.passed) ? "passed" : "failed",
+    score,
+    startedAt,
+    completedAt: currentTimestamp(deps.now),
+    caseResults,
+  };
+}
+
+async function defaultEvalResponder({ agent, evalCase }: { agent: Agent; evalCase: EvalCase }) {
+  return `${agent.greeting}\n${evalCase.input}`;
+}
+
+function evaluateCheck(check: EvalCheck, response: string) {
+  const normalizedResponse = response.toLowerCase();
+  const normalizedValue = check.value.toLowerCase();
+  const includesValue = normalizedResponse.includes(normalizedValue);
+
+  return {
+    ...check,
+    passed: check.type === "includes" ? includesValue : !includesValue,
+  };
+}
+
+function createEvalRecommendation(checkResults: Array<EvalCheck & { passed: boolean }>) {
+  const failed = checkResults.filter((checkResult) => !checkResult.passed);
+  const missingIncludes = failed
+    .filter((checkResult) => checkResult.type === "includes")
+    .map((checkResult) => `"${checkResult.value}"`);
+  const forbiddenMatches = failed
+    .filter((checkResult) => checkResult.type === "excludes")
+    .map((checkResult) => `"${checkResult.value}"`);
+
+  if (missingIncludes.length > 0) {
+    return `Add coverage for ${missingIncludes.join(", ")} to the agent prompt or knowledge base.`;
+  }
+
+  if (forbiddenMatches.length > 0) {
+    return `Avoid responses containing ${forbiddenMatches.join(", ")}.`;
+  }
+
+  return "Review the agent prompt and expected checks.";
 }
 
 function createUsageSummary(repositories: Repositories): UsageSummary {

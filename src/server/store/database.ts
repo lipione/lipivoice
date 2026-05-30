@@ -60,6 +60,18 @@ function runMigrations(db: DatabaseConnection): void {
       FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS evals (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS eval_runs (
+      id TEXT PRIMARY KEY,
+      eval_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS calls (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL
@@ -88,6 +100,9 @@ function runMigrations(db: DatabaseConnection): void {
 
     CREATE INDEX IF NOT EXISTS knowledge_documents_base_idx
       ON knowledge_documents (knowledge_base_id);
+
+    CREATE INDEX IF NOT EXISTS eval_runs_eval_started_idx
+      ON eval_runs (eval_id, started_at);
   `);
 }
 

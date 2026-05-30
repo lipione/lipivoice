@@ -201,6 +201,50 @@ describe("server app", () => {
     });
   });
 
+  it("saves and runs evals with pass/fail check results", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      evalResponder: async () => "Hi, this is LipiVoice. I can help with orders.",
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const definition = {
+      id: "eval_reception",
+      name: "Reception eval",
+      description: "Checks greeting and forbidden content.",
+      agentId: "agent_reception",
+      cases: [
+        {
+          id: "case_greeting",
+          input: "Say hello.",
+          checks: [
+            { type: "includes", value: "LipiVoice" },
+            { type: "excludes", value: "refund approved" },
+          ],
+        },
+      ],
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    };
+
+    const saved = await request(context.app).post("/api/evals").send(definition).expect(200);
+    const run = await request(context.app).post("/api/evals/eval_reception/run").send({}).expect(201);
+    const runs = await request(context.app).get("/api/evals/runs").expect(200);
+
+    expect(saved.body).toMatchObject({ id: "eval_reception", cases: expect.any(Array) });
+    expect(run.body).toMatchObject({
+      evalId: "eval_reception",
+      status: "passed",
+      score: 100,
+      caseResults: [
+        expect.objectContaining({
+          caseId: "case_greeting",
+          passed: true,
+          response: "Hi, this is LipiVoice. I can help with orders.",
+        }),
+      ],
+    });
+    expect(runs.body[0]).toMatchObject({ id: run.body.id, status: "passed" });
+  });
+
   it("saves valid tool definitions and rejects invalid tools", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const validTool = {

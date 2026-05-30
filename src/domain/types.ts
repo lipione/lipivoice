@@ -29,6 +29,7 @@ export type CallStatus =
 export type PhoneNumberProvider = "simulation" | "byo_sip" | "twilio" | "telnyx";
 export type PhoneNumberStatus = "active" | "pending" | "disabled";
 export type KnowledgeBaseStatus = "ready" | "indexing" | "failed";
+export type EvalRunStatus = "passed" | "failed";
 
 export interface Agent {
   id: string;
@@ -182,6 +183,47 @@ export interface UsageSummary {
   toolExecutions: number;
   knowledgeBases: number;
   knowledgeDocuments: number;
+}
+
+export interface EvalCheck {
+  type: "includes" | "excludes";
+  value: string;
+}
+
+export interface EvalCase {
+  id: string;
+  input: string;
+  checks: EvalCheck[];
+}
+
+export interface EvalDefinition {
+  id: string;
+  name: string;
+  description: string;
+  agentId: string;
+  cases: EvalCase[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvalRunCaseResult {
+  caseId: string;
+  input: string;
+  response: string;
+  passed: boolean;
+  checkResults: Array<EvalCheck & { passed: boolean }>;
+  recommendation: string | null;
+}
+
+export interface EvalRun {
+  id: string;
+  evalId: string;
+  agentId: string;
+  status: EvalRunStatus;
+  score: number;
+  startedAt: string;
+  completedAt: string;
+  caseResults: EvalRunCaseResult[];
 }
 
 export interface Call {

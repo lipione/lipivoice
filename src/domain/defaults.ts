@@ -1,5 +1,6 @@
 import type {
   Agent,
+  EvalDefinition,
   KnowledgeBase,
   KnowledgeDocument,
   ModelAsset,
@@ -25,6 +26,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
   knowledgeDocuments: KnowledgeDocument[];
+  evals: EvalDefinition[];
 } {
   return {
     agents: [
@@ -178,6 +180,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),
     knowledgeDocuments: createSeedKnowledgeDocuments(now),
+    evals: createSeedEvals(now),
   };
 }
 
@@ -190,6 +193,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
   knowledgeDocuments: KnowledgeDocument[];
+  evals: EvalDefinition[];
 } {
   const now = options.now ?? new Date().toISOString();
   const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
@@ -358,6 +362,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),
     knowledgeDocuments: createSeedKnowledgeDocuments(now),
+    evals: createSeedEvals(now),
   };
 }
 
@@ -421,6 +426,26 @@ function createSeedKnowledgeDocuments(now: string): KnowledgeDocument[] {
       sourceType: "text",
       content: "Reception is available Monday through Friday from 9 AM to 5 PM.",
       tokenCount: 12,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+function createSeedEvals(now: string): EvalDefinition[] {
+  return [
+    {
+      id: "eval_reception_greeting",
+      name: "Reception greeting",
+      description: "Checks that the reception agent identifies LipiVoice in its opening response.",
+      agentId: "agent_reception",
+      cases: [
+        {
+          id: "case_greeting",
+          input: "Say hello.",
+          checks: [{ type: "includes", value: "LipiVoice" }],
+        },
+      ],
       createdAt: now,
       updatedAt: now,
     },

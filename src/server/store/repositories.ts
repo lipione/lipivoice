@@ -4,6 +4,8 @@ import {
   agentSchema,
   callEventSchema,
   callSchema,
+  evalDefinitionSchema,
+  evalRunSchema,
   knowledgeBaseSchema,
   knowledgeDocumentSchema,
   knowledgeSearchResultSchema,
@@ -18,6 +20,8 @@ import type {
   Agent,
   Call,
   CallEvent,
+  EvalDefinition,
+  EvalRun,
   KnowledgeBase,
   KnowledgeDocument,
   KnowledgeSearchResult,
@@ -37,6 +41,7 @@ type TableName =
   | "tools"
   | "phone_numbers"
   | "knowledge_bases"
+  | "evals"
   | "calls";
 
 type StoredRow = {
@@ -77,6 +82,16 @@ export interface Repositories {
     listForKnowledgeBase(knowledgeBaseId: string): KnowledgeDocument[];
     search(knowledgeBaseId: string, query: string): KnowledgeSearchResult[];
   };
+  evals: {
+    list(): EvalDefinition[];
+    get(id: string): EvalDefinition | null;
+    save(evalDefinition: EvalDefinition): EvalDefinition;
+  };
+  evalRuns: {
+    append(input: Omit<EvalRun, "id">): EvalRun;
+    list(): EvalRun[];
+    listForEval(evalId: string): EvalRun[];
+  };
   toolExecutions: {
     append(input: Omit<ToolExecutionLog, "id">): ToolExecutionLog;
     list(): ToolExecutionLog[];
@@ -107,6 +122,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
   const tools = createJsonRepository(db, "tools", toolSchema.parse);
   const phoneNumbers = createJsonRepository(db, "phone_numbers", phoneNumberSchema.parse);
   const knowledgeBases = createJsonRepository(db, "knowledge_bases", knowledgeBaseSchema.parse);
+  const evals = createJsonRepository(db, "evals", evalDefinitionSchema.parse);
   const calls = createJsonRepository(db, "calls", callSchema.parse);
 
   return {
@@ -170,6 +186,37 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           .filter((result): result is KnowledgeSearchResult => result !== null)
           .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
           .map((result) => knowledgeSearchResultSchema.parse(result));
+      },
+    },
+    evals: {
+      list: evals.list,
+      get: evals.get,
+      save: evals.save,
+    },
+    evalRuns: {
+      append(input) {
+        const run = evalRunSchema.parse({
+          id: nanoid(),
+          ...input,
+        });
+
+        db.prepare(
+          "INSERT INTO eval_runs (id, eval_id, started_at, data) VALUES (?, ?, ?, ?)",
+        ).run(run.id, run.evalId, run.startedAt, JSON.stringify(run));
+
+        return run;
+      },
+      list() {
+        return db
+          .prepare("SELECT data FROM eval_runs ORDER BY started_at DESC, id DESC")
+          .all()
+          .map((row) => evalRunSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
+      listForEval(evalId) {
+        return db
+          .prepare("SELECT data FROM eval_runs WHERE eval_id = ? ORDER BY started_at DESC, id DESC")
+          .all(evalId)
+          .map((row) => evalRunSchema.parse(JSON.parse((row as StoredRow).data)));
       },
     },
     toolExecutions: {
@@ -258,6 +305,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
             JSON.stringify(parsed),
           );
         });
+        seed.evals.forEach(evals.insertMissing);
       });
 
       transaction();

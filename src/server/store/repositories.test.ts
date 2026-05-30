@@ -208,6 +208,48 @@ describe("repositories", () => {
     expect(results[0]?.snippet).toContain("Orders ship");
   });
 
+  it("persists eval definitions and run history newest-first", () => {
+    const agent = repos.agents.list()[0];
+    const definition = repos.evals.save({
+      id: "eval_greeting",
+      name: "Greeting check",
+      description: "Validates greeting content.",
+      agentId: agent.id,
+      cases: [
+        {
+          id: "case_hello",
+          input: "Say hello.",
+          checks: [{ type: "includes", value: "LipiVoice" }],
+        },
+      ],
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    repos.evalRuns.append({
+      evalId: definition.id,
+      agentId: agent.id,
+      status: "failed",
+      score: 0,
+      startedAt: "2026-05-31T00:00:01.000Z",
+      completedAt: "2026-05-31T00:00:01.000Z",
+      caseResults: [],
+    });
+    repos.evalRuns.append({
+      evalId: definition.id,
+      agentId: agent.id,
+      status: "passed",
+      score: 100,
+      startedAt: "2026-05-31T00:00:03.000Z",
+      completedAt: "2026-05-31T00:00:03.000Z",
+      caseResults: [],
+    });
+
+    expect(repos.evals.get("eval_greeting")?.name).toBe("Greeting check");
+    expect(repos.evalRuns.list().map((run) => run.status)).toEqual(["passed", "failed"]);
+    expect(repos.evalRuns.listForEval(definition.id)).toHaveLength(2);
+  });
+
   it("preserves existing records when seeding defaults again", () => {
     const agent = repos.agents.list()[0];
     repos.agents.save({ ...agent, name: "Locally Edited Agent" });
