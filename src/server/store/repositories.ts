@@ -4,6 +4,9 @@ import {
   agentSchema,
   callEventSchema,
   callSchema,
+  knowledgeBaseSchema,
+  knowledgeDocumentSchema,
+  knowledgeSearchResultSchema,
   modelAssetSchema,
   modelRuntimeSchema,
   phoneNumberSchema,
@@ -15,6 +18,9 @@ import type {
   Agent,
   Call,
   CallEvent,
+  KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeSearchResult,
   ModelRuntime,
   PhoneNumber,
   Tool,
@@ -30,6 +36,7 @@ type TableName =
   | "voices"
   | "tools"
   | "phone_numbers"
+  | "knowledge_bases"
   | "calls";
 
 type StoredRow = {
@@ -60,6 +67,16 @@ export interface Repositories {
     get(id: string): PhoneNumber | null;
     save(phoneNumber: PhoneNumber): PhoneNumber;
   };
+  knowledgeBases: {
+    list(): KnowledgeBase[];
+    get(id: string): KnowledgeBase | null;
+    save(knowledgeBase: KnowledgeBase): KnowledgeBase;
+  };
+  knowledgeDocuments: {
+    save(document: KnowledgeDocument): KnowledgeDocument;
+    listForKnowledgeBase(knowledgeBaseId: string): KnowledgeDocument[];
+    search(knowledgeBaseId: string, query: string): KnowledgeSearchResult[];
+  };
   toolExecutions: {
     append(input: Omit<ToolExecutionLog, "id">): ToolExecutionLog;
     list(): ToolExecutionLog[];
@@ -89,6 +106,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
   const voices = createJsonRepository(db, "voices", voiceSchema.parse);
   const tools = createJsonRepository(db, "tools", toolSchema.parse);
   const phoneNumbers = createJsonRepository(db, "phone_numbers", phoneNumberSchema.parse);
+  const knowledgeBases = createJsonRepository(db, "knowledge_bases", knowledgeBaseSchema.parse);
   const calls = createJsonRepository(db, "calls", callSchema.parse);
 
   return {
@@ -114,6 +132,45 @@ export function createRepositories(db: DatabaseConnection): Repositories {
       list: phoneNumbers.list,
       get: phoneNumbers.get,
       save: phoneNumbers.save,
+    },
+    knowledgeBases: {
+      list: knowledgeBases.list,
+      get: knowledgeBases.get,
+      save: knowledgeBases.save,
+    },
+    knowledgeDocuments: {
+      save(document) {
+        const parsed = knowledgeDocumentSchema.parse(document);
+        db.prepare(`
+          INSERT INTO knowledge_documents (id, knowledge_base_id, data)
+          VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            knowledge_base_id = excluded.knowledge_base_id,
+            data = excluded.data
+        `).run(parsed.id, parsed.knowledgeBaseId, JSON.stringify(parsed));
+        return parsed;
+      },
+      listForKnowledgeBase(knowledgeBaseId) {
+        return db
+          .prepare("SELECT data FROM knowledge_documents WHERE knowledge_base_id = ? ORDER BY id ASC")
+          .all(knowledgeBaseId)
+          .map((row) => knowledgeDocumentSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
+      search(knowledgeBaseId, query) {
+        const terms = tokenizeQuery(query);
+        if (terms.length === 0) {
+          return [];
+        }
+
+        return db
+          .prepare("SELECT data FROM knowledge_documents WHERE knowledge_base_id = ? ORDER BY id ASC")
+          .all(knowledgeBaseId)
+          .map((row) => knowledgeDocumentSchema.parse(JSON.parse((row as StoredRow).data)))
+          .map((document) => scoreDocument(document, terms))
+          .filter((result): result is KnowledgeSearchResult => result !== null)
+          .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+          .map((result) => knowledgeSearchResultSchema.parse(result));
+      },
     },
     toolExecutions: {
       append(input) {
@@ -192,6 +249,15 @@ export function createRepositories(db: DatabaseConnection): Repositories {
         const seedWithTools = seed as ReturnType<typeof createDefaultWorkspace> & { tools?: Tool[] };
         seedWithTools.tools?.forEach(tools.insertMissing);
         seed.phoneNumbers.forEach(phoneNumbers.insertMissing);
+        seed.knowledgeBases.forEach(knowledgeBases.insertMissing);
+        seed.knowledgeDocuments.forEach((document) => {
+          const parsed = knowledgeDocumentSchema.parse(document);
+          db.prepare("INSERT OR IGNORE INTO knowledge_documents (id, knowledge_base_id, data) VALUES (?, ?, ?)").run(
+            parsed.id,
+            parsed.knowledgeBaseId,
+            JSON.stringify(parsed),
+          );
+        });
       });
 
       transaction();
@@ -239,4 +305,44 @@ function createJsonRepository<T extends { id: string }>(
       return parsed;
     },
   };
+}
+
+function tokenizeQuery(query: string) {
+  return Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .map((term) => term.trim())
+        .filter((term) => term.length > 1),
+    ),
+  );
+}
+
+function scoreDocument(document: KnowledgeDocument, terms: string[]): KnowledgeSearchResult | null {
+  const haystack = `${document.title} ${document.content}`.toLowerCase();
+  const score = terms.reduce((currentScore, term) => currentScore + (haystack.includes(term) ? 1 : 0), 0);
+
+  if (score === 0) {
+    return null;
+  }
+
+  return {
+    documentId: document.id,
+    title: document.title,
+    snippet: createSnippet(document.content, terms),
+    score,
+  };
+}
+
+function createSnippet(content: string, terms: string[]) {
+  const lowerContent = content.toLowerCase();
+  const firstMatch = terms
+    .map((term) => lowerContent.indexOf(term))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0] ?? 0;
+  const start = Math.max(0, firstMatch - 50);
+  const end = Math.min(content.length, start + 160);
+
+  return content.slice(start, end);
 }

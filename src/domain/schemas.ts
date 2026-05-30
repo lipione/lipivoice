@@ -35,6 +35,7 @@ export const runtimeHealthStatusSchema = z.enum([
 ]);
 export const phoneNumberProviderSchema = z.enum(["simulation", "byo_sip", "twilio", "telnyx"]);
 export const phoneNumberStatusSchema = z.enum(["active", "pending", "disabled"]);
+export const knowledgeBaseStatusSchema = z.enum(["ready", "indexing", "failed"]);
 
 export const agentSchema = z.object({
   id: z.string().min(1),
@@ -161,6 +162,34 @@ export const phoneNumberSchema = z.object({
   outboundEnabled: z.boolean(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
+});
+
+export const knowledgeBaseSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  status: knowledgeBaseStatusSchema,
+  documentCount: z.number().int().min(0),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const knowledgeDocumentSchema = z.object({
+  id: z.string().min(1),
+  knowledgeBaseId: z.string().min(1),
+  title: z.string().min(1),
+  sourceType: z.enum(["text", "url", "file"]),
+  content: z.string().min(1),
+  tokenCount: z.number().int().min(0),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const knowledgeSearchResultSchema = z.object({
+  documentId: z.string().min(1),
+  title: z.string().min(1),
+  snippet: z.string(),
+  score: z.number().min(0),
 });
 
 export const callSchema = z.object({

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agentSchema,
+  knowledgeBaseSchema,
+  knowledgeDocumentSchema,
   modelRuntimeSchema,
   phoneNumberSchema,
   toolExecutionLogSchema,
@@ -108,5 +110,30 @@ describe("domain schemas", () => {
     });
 
     expect(phoneNumber.agentId).toBe("agent_reception");
+  });
+
+  it("accepts a knowledge base document", () => {
+    const knowledgeBase = knowledgeBaseSchema.parse({
+      id: "kb_reception",
+      name: "Reception FAQ",
+      description: "Answers common reception questions.",
+      status: "ready",
+      documentCount: 1,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+    const document = knowledgeDocumentSchema.parse({
+      id: "doc_hours",
+      knowledgeBaseId: "kb_reception",
+      title: "Hours",
+      sourceType: "text",
+      content: "We are open from 9 AM to 5 PM.",
+      tokenCount: 10,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(knowledgeBase.status).toBe("ready");
+    expect(document.knowledgeBaseId).toBe("kb_reception");
   });
 });

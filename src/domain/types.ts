@@ -28,6 +28,7 @@ export type CallStatus =
   | "failed";
 export type PhoneNumberProvider = "simulation" | "byo_sip" | "twilio" | "telnyx";
 export type PhoneNumberStatus = "active" | "pending" | "disabled";
+export type KnowledgeBaseStatus = "ready" | "indexing" | "failed";
 
 export interface Agent {
   id: string;
@@ -141,6 +142,34 @@ export interface PhoneNumber {
   outboundEnabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string;
+  status: KnowledgeBaseStatus;
+  documentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  knowledgeBaseId: string;
+  title: string;
+  sourceType: "text" | "url" | "file";
+  content: string;
+  tokenCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeSearchResult {
+  documentId: string;
+  title: string;
+  snippet: string;
+  score: number;
 }
 
 export interface Call {

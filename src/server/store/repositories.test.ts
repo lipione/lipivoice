@@ -182,6 +182,32 @@ describe("repositories", () => {
     });
   });
 
+  it("persists knowledge documents and searches snippets", () => {
+    const knowledgeBase = repos.knowledgeBases.list()[0];
+
+    repos.knowledgeDocuments.save({
+      id: "doc_shipping",
+      knowledgeBaseId: knowledgeBase.id,
+      title: "Shipping policy",
+      sourceType: "text",
+      content: "Orders ship within two business days after payment clears.",
+      tokenCount: 9,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    const results = repos.knowledgeDocuments.search(knowledgeBase.id, "when do orders ship");
+
+    expect(repos.knowledgeDocuments.listForKnowledgeBase(knowledgeBase.id)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "doc_shipping" })]),
+    );
+    expect(results[0]).toMatchObject({
+      documentId: "doc_shipping",
+      title: "Shipping policy",
+    });
+    expect(results[0]?.snippet).toContain("Orders ship");
+  });
+
   it("preserves existing records when seeding defaults again", () => {
     const agent = repos.agents.list()[0];
     repos.agents.save({ ...agent, name: "Locally Edited Agent" });

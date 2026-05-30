@@ -113,6 +113,51 @@ describe("server app", () => {
     expect(current.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "phone_support" })]));
   });
 
+  it("stores knowledge base documents and returns search results", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+    const seeded = await request(app).get("/api/knowledge-bases").expect(200);
+    const knowledgeBase = {
+      id: "kb_support",
+      name: "Support FAQ",
+      description: "Support answers.",
+      status: "ready",
+      documentCount: 0,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    };
+
+    const savedBase = await request(app).post("/api/knowledge-bases").send(knowledgeBase).expect(200);
+    const savedDocument = await request(app)
+      .post("/api/knowledge-bases/kb_support/documents")
+      .send({
+        id: "doc_refunds",
+        title: "Refund policy",
+        sourceType: "text",
+        content: "Refunds are available within 30 days for unused plans.",
+        createdAt: "2026-05-31T00:00:00.000Z",
+        updatedAt: "2026-05-31T00:00:00.000Z",
+      })
+      .expect(200);
+    const documents = await request(app).get("/api/knowledge-bases/kb_support/documents").expect(200);
+    const search = await request(app)
+      .post("/api/knowledge-bases/kb_support/search")
+      .send({ query: "refund unused plan" })
+      .expect(200);
+
+    expect(seeded.body).toEqual([expect.objectContaining({ id: "kb_reception_faq" })]);
+    expect(savedBase.body).toMatchObject({ id: "kb_support", name: "Support FAQ" });
+    expect(savedDocument.body).toMatchObject({
+      id: "doc_refunds",
+      knowledgeBaseId: "kb_support",
+      tokenCount: expect.any(Number),
+    });
+    expect(documents.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "doc_refunds" })]));
+    expect(search.body[0]).toMatchObject({
+      documentId: "doc_refunds",
+      title: "Refund policy",
+    });
+  });
+
   it("saves valid tool definitions and rejects invalid tools", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const validTool = {

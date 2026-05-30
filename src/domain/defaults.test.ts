@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultWorkspace, createRemoteWorkspace } from "./defaults";
-import { agentSchema, modelAssetSchema, modelRuntimeSchema, voiceSchema } from "./schemas";
+import {
+  agentSchema,
+  knowledgeBaseSchema,
+  knowledgeDocumentSchema,
+  modelAssetSchema,
+  modelRuntimeSchema,
+  phoneNumberSchema,
+  voiceSchema,
+} from "./schemas";
 
 describe("domain defaults", () => {
   it("seeds schema-valid workspace records", () => {
@@ -20,6 +28,18 @@ describe("domain defaults", () => {
 
     for (const voice of workspace.voices) {
       expect(() => voiceSchema.parse(voice)).not.toThrow();
+    }
+
+    for (const phoneNumber of workspace.phoneNumbers) {
+      expect(() => phoneNumberSchema.parse(phoneNumber)).not.toThrow();
+    }
+
+    for (const knowledgeBase of workspace.knowledgeBases) {
+      expect(() => knowledgeBaseSchema.parse(knowledgeBase)).not.toThrow();
+    }
+
+    for (const knowledgeDocument of workspace.knowledgeDocuments) {
+      expect(() => knowledgeDocumentSchema.parse(knowledgeDocument)).not.toThrow();
     }
   });
 

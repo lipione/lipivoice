@@ -249,6 +249,19 @@ describe("AgentsPage", () => {
           },
         ]);
       }
+      if (url.endsWith("/api/knowledge-bases")) {
+        return Response.json([
+          {
+            id: "kb_reception_faq",
+            name: "Reception FAQ",
+            description: "Common caller answers.",
+            status: "ready",
+            documentCount: 1,
+            createdAt: "2026-05-31T00:00:00.000Z",
+            updatedAt: "2026-05-31T00:00:00.000Z",
+          },
+        ]);
+      }
       if (url.endsWith("/api/voices")) {
         return Response.json([
           {
@@ -272,6 +285,7 @@ describe("AgentsPage", () => {
     render(<AgentsPage />);
 
     await user.click(await screen.findByRole("checkbox", { name: "Order lookup" }));
+    await user.click(screen.getByRole("checkbox", { name: "Reception FAQ" }));
     await user.click(screen.getByRole("checkbox", { name: "Record calls" }));
     await user.click(screen.getByRole("button", { name: "Save agent" }));
 
@@ -287,6 +301,12 @@ describe("AgentsPage", () => {
       "/api/agents",
       expect.objectContaining({
         body: expect.stringContaining("\"recordingEnabled\":true"),
+      }),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/agents",
+      expect.objectContaining({
+        body: expect.stringContaining("\"knowledgeBaseIds\":[\"kb_reception_faq\"]"),
       }),
     );
   });

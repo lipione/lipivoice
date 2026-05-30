@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Agent, ModelRuntime, Tool, Voice } from "@/domain/types";
+import type { Agent, KnowledgeBase, ModelRuntime, Tool, Voice } from "@/domain/types";
 import { RuntimeHealthPanel } from "@/features/runtimes/RuntimeHealthPanel";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,7 @@ export function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [runtimes, setRuntimes] = useState<ModelRuntime[]>([]);
   const [tools, setTools] = useState<Tool[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +33,11 @@ export function AgentsPage() {
       setError(null);
 
       try {
-        const [nextAgents, nextRuntimes, nextTools, nextVoices] = await Promise.all([
+        const [nextAgents, nextRuntimes, nextTools, nextKnowledgeBases, nextVoices] = await Promise.all([
           getJson<Agent[]>("/api/agents"),
           getJson<ModelRuntime[]>("/api/model-runtimes"),
           getJson<Tool[]>("/api/tools"),
+          getJson<KnowledgeBase[]>("/api/knowledge-bases").catch(() => []),
           getJson<Voice[]>("/api/voices"),
         ]);
 
@@ -44,6 +46,7 @@ export function AgentsPage() {
         setAgents(nextAgents);
         setRuntimes(nextRuntimes);
         setTools(nextTools);
+        setKnowledgeBases(nextKnowledgeBases);
         setVoices(nextVoices);
         setSelectedAgentId((current) => current ?? nextAgents[0]?.id ?? null);
       } catch (loadError) {
@@ -99,6 +102,15 @@ export function AgentsPage() {
       ? Array.from(new Set([...selectedAgent.toolIds, toolId]))
       : selectedAgent.toolIds.filter((currentToolId) => currentToolId !== toolId);
     patchSelectedAgent({ toolIds: nextToolIds });
+  }
+
+  function toggleKnowledgeBase(knowledgeBaseId: string, checked: boolean) {
+    if (!selectedAgent) return;
+
+    const nextKnowledgeBaseIds = checked
+      ? Array.from(new Set([...selectedAgent.knowledgeBaseIds, knowledgeBaseId]))
+      : selectedAgent.knowledgeBaseIds.filter((currentKnowledgeBaseId) => currentKnowledgeBaseId !== knowledgeBaseId);
+    patchSelectedAgent({ knowledgeBaseIds: nextKnowledgeBaseIds });
   }
 
   async function saveSelectedAgent() {
@@ -358,6 +370,35 @@ export function AgentsPage() {
                                 <span className="block truncate font-medium">{tool.name}</span>
                                 <span className="block truncate text-xs text-muted-foreground">
                                   {tool.method} {tool.url}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid gap-2">
+                      <p className="text-sm font-medium">Knowledge Bases</p>
+                      {knowledgeBases.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No knowledge bases configured.</p>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {knowledgeBases.map((knowledgeBase) => (
+                            <label
+                              key={knowledgeBase.id}
+                              className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                aria-label={knowledgeBase.name}
+                                className="mt-0.5 h-4 w-4 rounded border-input"
+                                checked={selectedAgent.knowledgeBaseIds.includes(knowledgeBase.id)}
+                                onChange={(event) => toggleKnowledgeBase(knowledgeBase.id, event.target.checked)}
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium">{knowledgeBase.name}</span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {knowledgeBase.documentCount} documents
                                 </span>
                               </span>
                             </label>

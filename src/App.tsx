@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsPage } from "@/features/agents/AgentsPage";
 import { CallsPage } from "@/features/calls/CallsPage";
+import { KnowledgeBasePage } from "@/features/knowledge/KnowledgeBasePage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
@@ -28,6 +29,8 @@ export function App() {
         <CallsPage />
       ) : activePage === "tools" ? (
         <ToolsPage />
+      ) : activePage === "knowledge" ? (
+        <KnowledgeBasePage />
       ) : activePage === "voice-lab" ? (
         <VoiceLabPage />
       ) : (

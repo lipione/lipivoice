@@ -1,4 +1,13 @@
-import type { Agent, ModelAsset, ModelRuntime, PhoneNumber, Tool, Voice } from "./types";
+import type {
+  Agent,
+  KnowledgeBase,
+  KnowledgeDocument,
+  ModelAsset,
+  ModelRuntime,
+  PhoneNumber,
+  Tool,
+  Voice,
+} from "./types";
 
 interface RemoteWorkspaceOptions {
   now?: string;
@@ -14,6 +23,8 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   voices: Voice[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
+  knowledgeBases: KnowledgeBase[];
+  knowledgeDocuments: KnowledgeDocument[];
 } {
   return {
     agents: [
@@ -31,7 +42,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
         recordingEnabled: false,
         interruptionSensitivity: "medium",
         toolIds: [],
-        knowledgeBaseIds: [],
+        knowledgeBaseIds: ["kb_reception_faq"],
         deploymentState: "draft",
         createdAt: now,
         updatedAt: now,
@@ -165,6 +176,8 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
     ],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
+    knowledgeBases: createSeedKnowledgeBases(now),
+    knowledgeDocuments: createSeedKnowledgeDocuments(now),
   };
 }
 
@@ -175,6 +188,8 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   voices: Voice[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
+  knowledgeBases: KnowledgeBase[];
+  knowledgeDocuments: KnowledgeDocument[];
 } {
   const now = options.now ?? new Date().toISOString();
   const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
@@ -195,7 +210,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
         recordingEnabled: false,
         interruptionSensitivity: "medium",
         toolIds: [],
-        knowledgeBaseIds: [],
+        knowledgeBaseIds: ["kb_reception_faq"],
         deploymentState: "ready",
         createdAt: now,
         updatedAt: now,
@@ -341,6 +356,8 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
     ],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
+    knowledgeBases: createSeedKnowledgeBases(now),
+    knowledgeDocuments: createSeedKnowledgeDocuments(now),
   };
 }
 
@@ -375,6 +392,35 @@ function createSeedPhoneNumbers(now: string): PhoneNumber[] {
       agentId: "agent_reception",
       inboundEnabled: true,
       outboundEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+function createSeedKnowledgeBases(now: string): KnowledgeBase[] {
+  return [
+    {
+      id: "kb_reception_faq",
+      name: "Reception FAQ",
+      description: "Default caller-facing answers for the reception agent.",
+      status: "ready",
+      documentCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+function createSeedKnowledgeDocuments(now: string): KnowledgeDocument[] {
+  return [
+    {
+      id: "doc_reception_hours",
+      knowledgeBaseId: "kb_reception_faq",
+      title: "Reception hours",
+      sourceType: "text",
+      content: "Reception is available Monday through Friday from 9 AM to 5 PM.",
+      tokenCount: 12,
       createdAt: now,
       updatedAt: now,
     },

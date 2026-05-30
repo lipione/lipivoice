@@ -3,7 +3,13 @@ import { join } from "node:path";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
-import { agentSchema, phoneNumberSchema, toolSchema } from "@/domain/schemas";
+import {
+  agentSchema,
+  knowledgeBaseSchema,
+  knowledgeDocumentSchema,
+  phoneNumberSchema,
+  toolSchema,
+} from "@/domain/schemas";
 import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
@@ -152,6 +158,89 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
 
     response.json(repositories.phoneNumbers.save(result.data));
+  });
+
+  app.get("/api/knowledge-bases", (_request, response) => {
+    response.json(repositories.knowledgeBases.list());
+  });
+
+  app.post("/api/knowledge-bases", (request, response) => {
+    const result = knowledgeBaseSchema.safeParse(request.body);
+
+    if (!result.success) {
+      response.status(400).json({ code: "invalid_knowledge_base" });
+      return;
+    }
+
+    response.json(repositories.knowledgeBases.save(result.data));
+  });
+
+  app.get("/api/knowledge-bases/:id/documents", (request, response) => {
+    const knowledgeBase = repositories.knowledgeBases.get(request.params.id);
+
+    if (!knowledgeBase) {
+      response.status(404).json({ code: "knowledge_base_not_found" });
+      return;
+    }
+
+    response.json(repositories.knowledgeDocuments.listForKnowledgeBase(knowledgeBase.id));
+  });
+
+  app.post("/api/knowledge-bases/:id/documents", (request, response) => {
+    const knowledgeBase = repositories.knowledgeBases.get(request.params.id);
+
+    if (!knowledgeBase) {
+      response.status(404).json({ code: "knowledge_base_not_found" });
+      return;
+    }
+
+    const now = currentTimestamp(deps.now);
+    const title = typeof request.body?.title === "string" ? request.body.title.trim() : "";
+    const content = typeof request.body?.content === "string" ? request.body.content.trim() : "";
+    const sourceType = isKnowledgeSourceType(request.body?.sourceType) ? request.body.sourceType : "text";
+    const document = knowledgeDocumentSchema.safeParse({
+      id: typeof request.body?.id === "string" && request.body.id.trim()
+        ? request.body.id.trim()
+        : createKnowledgeDocumentId(title || "document"),
+      knowledgeBaseId: knowledgeBase.id,
+      title,
+      sourceType,
+      content,
+      tokenCount: countTokens(content),
+      createdAt: typeof request.body?.createdAt === "string" ? request.body.createdAt : now,
+      updatedAt: now,
+    });
+
+    if (!document.success) {
+      response.status(400).json({ code: "invalid_knowledge_document" });
+      return;
+    }
+
+    const savedDocument = repositories.transaction(() => {
+      const saved = repositories.knowledgeDocuments.save(document.data);
+      const documentCount = repositories.knowledgeDocuments.listForKnowledgeBase(knowledgeBase.id).length;
+      repositories.knowledgeBases.save({
+        ...knowledgeBase,
+        documentCount,
+        status: "ready",
+        updatedAt: now,
+      });
+      return saved;
+    });
+
+    response.json(savedDocument);
+  });
+
+  app.post("/api/knowledge-bases/:id/search", (request, response) => {
+    const knowledgeBase = repositories.knowledgeBases.get(request.params.id);
+
+    if (!knowledgeBase) {
+      response.status(404).json({ code: "knowledge_base_not_found" });
+      return;
+    }
+
+    const query = typeof request.body?.query === "string" ? request.body.query : "";
+    response.json(repositories.knowledgeDocuments.search(knowledgeBase.id, query));
   });
 
   app.get("/api/tools/executions", (_request, response) => {
@@ -465,6 +554,23 @@ function durationSecondsBetween(startedAt: string, endedAt: string) {
   }
 
   return Math.max(0, Math.round((ended - started) / 1000));
+}
+
+function isKnowledgeSourceType(value: unknown): value is "text" | "url" | "file" {
+  return value === "text" || value === "url" || value === "file";
+}
+
+function countTokens(content: string) {
+  return content.split(/\s+/).filter(Boolean).length;
+}
+
+function createKnowledgeDocumentId(title: string) {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return `doc_${slug || Date.now()}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
