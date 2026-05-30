@@ -14,6 +14,7 @@ import { OpenAICompatibleAdapter } from "./runtimes/openAiCompatible";
 import { PiperAdapter } from "./runtimes/piper";
 import { WhisperCppAdapter } from "./runtimes/whisperCpp";
 import type { RuntimeHealthResult, TtsAdapter } from "./runtimes/types";
+import { createRealtimeSessionStore, type RealtimeSessionStore } from "./realtime/sessionTokens";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
 type RuntimeHealthChecks = Partial<Record<RuntimeAdapter, () => Promise<RuntimeHealthResult>>>;
@@ -21,11 +22,14 @@ type RuntimeHealthChecks = Partial<Record<RuntimeAdapter, () => Promise<RuntimeH
 interface AppDeps {
   tts?: TtsAdapter | null;
   runtimeHealth?: RuntimeHealthChecks;
+  realtimeSessions?: RealtimeSessionStore;
+  now?: () => Date;
 }
 
 export interface AppContext {
   app: express.Express;
   repositories: Repositories;
+  realtimeSessions: RealtimeSessionStore;
   close(): void;
 }
 
@@ -88,6 +92,7 @@ function createWorkspaceFromConfig(config: ServerConfig): WorkspaceSeed {
 function createAppContextWithRepositories(repositories: Repositories, deps: AppDeps = {}): AppContext {
   const app = express();
   let closed = false;
+  const realtimeSessions = deps.realtimeSessions ?? createRealtimeSessionStore({ now: deps.now });
 
   app.use(cors());
   app.use(express.json());
@@ -149,6 +154,10 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     } catch (error) {
       next(error);
     }
+  });
+
+  app.post("/api/realtime/session", (_request, response) => {
+    response.status(201).json(realtimeSessions.createSession());
   });
 
   app.get("/api/calls", (_request, response) => {
@@ -242,6 +251,7 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
   return {
     app,
     repositories,
+    realtimeSessions,
     close() {
       if (closed) {
         return;

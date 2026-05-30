@@ -56,6 +56,20 @@ describe("server app", () => {
     expect(response.body.events[0].payload.status).toBe("connected");
   });
 
+  it("creates short-lived realtime session tokens", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      now: () => new Date("2026-05-30T00:00:00.000Z"),
+    });
+
+    const response = await request(app).post("/api/realtime/session").send({}).expect(201);
+
+    expect(response.body).toEqual({
+      token: expect.any(String),
+      expiresAt: "2026-05-30T00:01:00.000Z",
+    });
+    expect(response.body.token.length).toBeGreaterThan(20);
+  });
+
   it("returns seeded tool definitions", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
 

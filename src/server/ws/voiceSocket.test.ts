@@ -241,6 +241,45 @@ describe("voice socket", () => {
     expect(ws.readyState).not.toBe(WebSocket.OPEN);
   });
 
+  it("rejects realtime connections when a session token is missing or invalid", async () => {
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      validateSessionToken: (token) => token === "valid_token",
+      checkReady: async () => ({ ready: true }),
+      processAudio: async () => ({ events: [] }),
+    });
+
+    await listen();
+
+    await expect(waitForRejectedConnection(connect("/api/realtime"))).resolves.toBe("rejected");
+    await expect(waitForRejectedConnection(connect("/api/realtime?token=bad_token"))).resolves.toBe("rejected");
+
+    const ws = connect("/api/realtime?token=valid_token");
+    await waitForOpen(ws);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("rejects audio chunks that exceed the configured decoded byte limit", async () => {
+    let calls = 0;
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      maxAudioBytes: 3,
+      checkReady: async () => ({ ready: true }),
+      processAudio: async () => {
+        calls += 1;
+        return { events: [] };
+      },
+    });
+
+    await listen();
+    const ws = connect("/api/realtime");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm", audioBase64: "dm9pY2U=" }));
+
+    await expect(readJsonMessage(ws)).resolves.toEqual({ type: "error", reason: "audio_payload_too_large" });
+    expect(calls).toBe(0);
+  });
+
   it("rejects a second audio chunk while processing is already in progress", async () => {
     let calls = 0;
     const processing = createDeferred<{ events: [] }>();
@@ -320,9 +359,9 @@ function waitForEvent(ws: WebSocket, event: "open" | "close") {
 
 function waitForRejectedConnection(ws: WebSocket) {
   return withTimeout(
-    new Promise<"rejected">((resolve) => {
+    new Promise<"rejected">((resolve, reject) => {
       ws.once("open", () => {
-        throw new Error("unexpected websocket open");
+        reject(new Error("unexpected websocket open"));
       });
       ws.once("close", () => resolve("rejected"));
       ws.once("error", () => resolve("rejected"));

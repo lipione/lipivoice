@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AudioWaveform } from "lucide-react";
 
+import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type { Voice } from "@/domain/types";
 
 interface TtsResponse {
   audioBase64: string;
@@ -17,20 +19,43 @@ interface GeneratedAudio extends TtsResponse {
   voiceName: string;
 }
 
-const localVoices = [{ id: "voice_piper_amy", name: "Piper Amy" }];
-
 export function VoiceLabPage() {
   const [text, setText] = useState("");
-  const [voiceId, setVoiceId] = useState(localVoices[0]?.id ?? "");
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [voiceId, setVoiceId] = useState("");
   const [audio, setAudio] = useState<GeneratedAudio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadVoices() {
+      try {
+        const nextVoices = await getJson<Voice[]>("/api/voices");
+        if (!isCurrent) return;
+
+        setVoices(nextVoices);
+        setVoiceId((currentVoiceId) => currentVoiceId || nextVoices[0]?.id || "");
+      } catch {
+        if (isCurrent) {
+          setError("voices_load_failed");
+        }
+      }
+    }
+
+    void loadVoices();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   async function generateSpeech() {
     const submittedText = text.trim();
     const submittedVoiceId = voiceId;
     const submittedVoiceName =
-      localVoices.find((voice) => voice.id === submittedVoiceId)?.name ?? submittedVoiceId;
+      voices.find((voice) => voice.id === submittedVoiceId)?.name ?? submittedVoiceId;
 
     setIsGenerating(true);
     setError(null);
@@ -94,16 +119,23 @@ export function VoiceLabPage() {
               value={voiceId}
               onChange={(event) => setVoiceId(event.target.value)}
             >
-              {localVoices.map((voice) => (
+              {voices.length === 0 ? (
+                <option value="">No voices available</option>
+              ) : null}
+              {voices.map((voice) => (
                 <option key={voice.id} value={voice.id}>
-                  {voice.name}
+                  {voice.name} - {voice.language}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={() => void generateSpeech()} disabled={isGenerating || text.trim() === ""}>
+            <Button
+              type="button"
+              onClick={() => void generateSpeech()}
+              disabled={isGenerating || text.trim() === "" || voiceId === ""}
+            >
               <AudioWaveform aria-hidden="true" />
               {isGenerating ? "Generating..." : "Generate speech"}
             </Button>

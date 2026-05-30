@@ -9,7 +9,11 @@ const context = createApp(config);
 const server = createServer(context.app);
 const voiceSocket = attachVoiceSocket(
   server,
-  createVoiceSocketDeps({ config, repositories: context.repositories }),
+  {
+    ...createVoiceSocketDeps({ config, repositories: context.repositories }),
+    validateSessionToken: (token) => context.realtimeSessions.consume(token),
+    maxAudioBytes: 2 * 1024 * 1024,
+  },
 );
 
 function closeContext() {

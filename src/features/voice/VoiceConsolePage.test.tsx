@@ -76,6 +76,15 @@ function stubMic() {
   return { getUserMedia, stop };
 }
 
+function stubRealtimeSession(token = "session_token") {
+  const fetch = vi.fn(async () =>
+    Response.json({ token, expiresAt: "2026-05-30T00:00:30.000Z" }, { status: 201 }),
+  );
+  vi.stubGlobal("fetch", fetch);
+
+  return fetch;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -112,6 +121,7 @@ describe("VoiceConsolePage", () => {
   it("captures microphone audio and sends chunks to the realtime socket", async () => {
     const user = userEvent.setup();
     const { getUserMedia, stop } = stubMic();
+    const fetch = stubRealtimeSession("token_123");
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -120,7 +130,8 @@ describe("VoiceConsolePage", () => {
     await user.click(screen.getByRole("button", { name: /Start/ }));
 
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
-    expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/realtime");
+    expect(fetch).toHaveBeenCalledWith("/api/realtime/session", expect.objectContaining({ method: "POST" }));
+    expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/realtime?token=token_123");
     expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
 
     MockMediaRecorder.instances[0]?.emitAudio(new Blob(["voice"], { type: "audio/webm" }));
@@ -142,6 +153,7 @@ describe("VoiceConsolePage", () => {
   it("renders transcript and audio events from the server", async () => {
     const user = userEvent.setup();
     stubMic();
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -171,6 +183,7 @@ describe("VoiceConsolePage", () => {
   it("cleans up recorder, socket, and tracks on unmount", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -196,6 +209,7 @@ describe("VoiceConsolePage", () => {
       configurable: true,
       value: { getUserMedia },
     });
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -218,6 +232,7 @@ describe("VoiceConsolePage", () => {
   it("stops capture when the socket closes", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -246,6 +261,7 @@ describe("VoiceConsolePage", () => {
       configurable: true,
       value: { getUserMedia },
     });
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -280,6 +296,7 @@ describe("VoiceConsolePage", () => {
       configurable: true,
       value: { getUserMedia },
     });
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -310,6 +327,7 @@ describe("VoiceConsolePage", () => {
   it("stops capture and marks failed when the socket errors", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -332,6 +350,7 @@ describe("VoiceConsolePage", () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
     MockMediaRecorder.throwOnConstruct = true;
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -349,6 +368,7 @@ describe("VoiceConsolePage", () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
     MockMediaRecorder.throwOnStart = true;
+    stubRealtimeSession();
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
@@ -360,6 +380,23 @@ describe("VoiceConsolePage", () => {
     expect(screen.getByText("failed")).toBeInTheDocument();
     expect(MockMediaRecorder.instances[0]?.stop).not.toHaveBeenCalled();
     expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.CLOSED);
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it("stops before opening a socket when realtime session creation fails", async () => {
+    const user = userEvent.setup();
+    const { stop } = stubMic();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: "runtime_not_configured" }, { status: 409 })));
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    render(<VoiceConsolePage />);
+
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+
+    expect(await screen.findByText("realtime_session_failed")).toBeInTheDocument();
+    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(MockMediaRecorder.instances).toHaveLength(0);
     expect(stop).toHaveBeenCalled();
   });
 });

@@ -133,6 +133,42 @@ describe("tool executor", () => {
     });
   });
 
+  it("refuses unsafe tool URLs before making a network request", async () => {
+    const fetchImpl = vi.fn(async () => new Response("not reached", { status: 200 }));
+
+    const result = await executeTool(
+      { ...baseTool, url: "http://127.0.0.1:8787/internal/{orderId}" },
+      { orderId: "A123" },
+      { fetchImpl },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      status: 0,
+      attempts: 0,
+      error: "unsafe_tool_url",
+      request: {
+        method: "GET",
+        url: "http://127.0.0.1:8787/internal/A123",
+      },
+      response: { body: "unsafe_tool_url" },
+    });
+  });
+
+  it("allows explicit private tool URLs for trusted local deployments", async () => {
+    const fetchImpl = vi.fn(async () => new Response("ok", { status: 200 }));
+
+    const result = await executeTool(
+      { ...baseTool, url: "http://127.0.0.1:8787/internal/{orderId}" },
+      { orderId: "A123" },
+      { fetchImpl, allowPrivateUrls: true },
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+  });
+
   it("aborts a slow tool call at the configured timeout", async () => {
     vi.useFakeTimers();
     const signals: AbortSignal[] = [];

@@ -9,6 +9,8 @@ export interface VoiceSocketDeps {
     events: VoiceSocketEvent[];
   }>;
   createCallSession?(): Promise<VoiceSocketCallSession | null>;
+  validateSessionToken?(token: string): boolean;
+  maxAudioBytes?: number;
 }
 
 export type VoiceSocketEvent = {
@@ -50,9 +52,15 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
   let closePromise: Promise<void> | null = null;
 
   function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const path = url.pathname;
 
     if (closing || path !== "/api/realtime") {
+      socket.destroy();
+      return;
+    }
+
+    if (deps.validateSessionToken && !deps.validateSessionToken(url.searchParams.get("token") ?? "")) {
       socket.destroy();
       return;
     }
@@ -192,6 +200,12 @@ async function handleMessage(
     return;
   }
 
+  if (isAudioPayloadTooLarge(message.audioBase64, deps.maxAudioBytes)) {
+    sendJson(webSocket, { type: "error", reason: "audio_payload_too_large" });
+    state.recordEvent(recordedError("audio_payload_too_large"));
+    return;
+  }
+
   const readiness = await ready;
   if (!readiness.ready) {
     return;
@@ -247,6 +261,10 @@ function isAudioChunkMessage(value: unknown): value is AudioChunkMessage {
     "audioBase64" in value &&
     typeof value.audioBase64 === "string"
   );
+}
+
+function isAudioPayloadTooLarge(audioBase64: string, maxAudioBytes: number | undefined) {
+  return typeof maxAudioBytes === "number" && Buffer.byteLength(audioBase64, "base64") > maxAudioBytes;
 }
 
 function sendJson(webSocket: WebSocket, value: unknown) {

@@ -20,6 +20,7 @@ export interface ToolExecutionResult {
 
 interface ExecuteToolOptions {
   fetchImpl?: typeof fetch;
+  allowPrivateUrls?: boolean;
 }
 
 export async function executeTool(
@@ -31,6 +32,17 @@ export async function executeTool(
   const request = buildRequest(tool, args);
   const startedAt = performance.now();
   const maxAttempts = tool.retryCount + 1;
+
+  if (!options.allowPrivateUrls && !isSafeToolUrl(request.url)) {
+    return formatFailure(
+      tool,
+      request.url,
+      request.redactedHeaders,
+      "unsafe_tool_url",
+      startedAt,
+      0,
+    );
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -238,4 +250,56 @@ function appendQuery(url: string, args: Record<string, unknown>) {
   });
 
   return nextUrl.toString();
+}
+
+function isSafeToolUrl(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return false;
+  }
+
+  return !isPrivateHostname(parsed.hostname);
+}
+
+function isPrivateHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
+  if (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "local" ||
+    normalized.endsWith(".local")
+  ) {
+    return true;
+  }
+
+  if (normalized.includes(":")) {
+    return (
+      normalized === "::1" ||
+      normalized.startsWith("fc") ||
+      normalized.startsWith("fd") ||
+      normalized.startsWith("fe80:")
+    );
+  }
+
+  const octets = normalized.split(".").map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
 }

@@ -114,7 +114,20 @@ export function VoiceConsolePage() {
     }
 
     streamRef.current = stream;
-    const socket = createVoiceSocket(getRealtimeSocketUrl(), {
+
+    let realtimeSession: RealtimeSessionResponse;
+    try {
+      realtimeSession = await createRealtimeSession();
+    } catch {
+      cleanupSession({ status: "failed", reason: "realtime_session_failed" });
+      return;
+    }
+
+    if (activeSessionIdRef.current !== sessionId) {
+      return;
+    }
+
+    const socket = createVoiceSocket(getRealtimeSocketUrl(realtimeSession.token), {
       onOpen() {
         if (activeSessionIdRef.current !== sessionId) {
           return;
@@ -282,10 +295,29 @@ export function VoiceConsolePage() {
   );
 }
 
-function getRealtimeSocketUrl() {
+interface RealtimeSessionResponse {
+  token: string;
+  expiresAt: string;
+}
+
+async function createRealtimeSession(): Promise<RealtimeSessionResponse> {
+  const response = await fetch("/api/realtime/session", { method: "POST" });
+  if (!response.ok) {
+    throw new Error("realtime_session_failed");
+  }
+
+  const body = (await response.json()) as Partial<RealtimeSessionResponse>;
+  if (typeof body.token !== "string" || typeof body.expiresAt !== "string") {
+    throw new Error("realtime_session_failed");
+  }
+
+  return { token: body.token, expiresAt: body.expiresAt };
+}
+
+function getRealtimeSocketUrl(token: string) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 
-  return `${protocol}//${window.location.host}/api/realtime`;
+  return `${protocol}//${window.location.host}/api/realtime?token=${encodeURIComponent(token)}`;
 }
 
 function stopStream(stream: MediaStream | null) {
