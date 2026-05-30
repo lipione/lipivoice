@@ -243,6 +243,44 @@ describe("repositories", () => {
     ).toThrow();
   });
 
+  it("persists tool execution logs in newest-first order", () => {
+    repos.toolExecutions.append({
+      toolId: "tool_order_lookup",
+      toolName: "Order lookup",
+      timestamp: "2026-05-31T00:00:01.000Z",
+      ok: true,
+      status: 200,
+      attempts: 1,
+      durationMs: 12,
+      error: null,
+      request: {
+        method: "GET",
+        url: "https://example.com/orders/A123",
+        headers: [],
+      },
+      response: { body: "{\"ok\":true}" },
+    });
+    repos.toolExecutions.append({
+      toolId: "tool_order_lookup",
+      toolName: "Order lookup",
+      timestamp: "2026-05-31T00:00:03.000Z",
+      ok: false,
+      status: 0,
+      attempts: 1,
+      durationMs: 50,
+      error: "tool_timeout",
+      request: {
+        method: "GET",
+        url: "https://example.com/orders/A124",
+        headers: [],
+      },
+      response: { body: "tool_timeout" },
+    });
+
+    expect(repos.toolExecutions.list().map((log) => log.error)).toEqual(["tool_timeout", null]);
+    expect(repos.toolExecutions.listForTool("tool_order_lookup")).toHaveLength(2);
+  });
+
   it("rolls back transaction writes when an operation fails", () => {
     const agent = repos.agents.list()[0];
 

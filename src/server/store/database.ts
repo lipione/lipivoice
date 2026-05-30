@@ -48,6 +48,13 @@ function runMigrations(db: DatabaseConnection): void {
       data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS tool_execution_logs (
+      id TEXT PRIMARY KEY,
+      tool_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS call_events (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
@@ -58,6 +65,9 @@ function runMigrations(db: DatabaseConnection): void {
 
     CREATE INDEX IF NOT EXISTS call_events_call_id_timestamp_idx
       ON call_events (call_id, timestamp);
+
+    CREATE INDEX IF NOT EXISTS tool_execution_logs_tool_id_timestamp_idx
+      ON tool_execution_logs (tool_id, timestamp);
   `);
 }
 

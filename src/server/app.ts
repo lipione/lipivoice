@@ -15,6 +15,7 @@ import { PiperAdapter } from "./runtimes/piper";
 import { WhisperCppAdapter } from "./runtimes/whisperCpp";
 import type { RuntimeHealthResult, TtsAdapter } from "./runtimes/types";
 import { createRealtimeSessionStore, type RealtimeSessionStore } from "./realtime/sessionTokens";
+import { executeTool } from "./tools/executor";
 
 type WorkspaceSeed = ReturnType<typeof createDefaultWorkspace>;
 type RuntimeHealthChecks = Partial<Record<RuntimeAdapter, () => Promise<RuntimeHealthResult>>>;
@@ -23,6 +24,8 @@ interface AppDeps {
   tts?: TtsAdapter | null;
   runtimeHealth?: RuntimeHealthChecks;
   realtimeSessions?: RealtimeSessionStore;
+  toolFetch?: typeof fetch;
+  allowPrivateToolUrls?: boolean;
   now?: () => Date;
 }
 
@@ -129,6 +132,37 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
 
     response.json(repositories.tools.save(result.data));
+  });
+
+  app.get("/api/tools/executions", (_request, response) => {
+    response.json(repositories.toolExecutions.list());
+  });
+
+  app.post("/api/tools/execute", async (request, response, next) => {
+    try {
+      const toolId = typeof request.body?.toolId === "string" ? request.body.toolId : "";
+      const args = isRecord(request.body?.arguments) ? request.body.arguments : {};
+      const tool = repositories.tools.get(toolId);
+
+      if (!tool) {
+        response.status(404).json({ code: "tool_not_found" });
+        return;
+      }
+
+      const result = await executeTool(tool, args, {
+        fetchImpl: deps.toolFetch,
+        allowPrivateUrls: deps.allowPrivateToolUrls,
+      });
+      const log = repositories.toolExecutions.append({
+        ...result,
+        timestamp: currentTimestamp(deps.now),
+        error: result.error ?? null,
+      });
+
+      response.json(log);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/model-runtimes", async (_request, response, next) => {
@@ -308,4 +342,12 @@ function isMalformedJsonError(error: unknown): boolean {
     error.status === 400 &&
     "body" in error
   );
+}
+
+function currentTimestamp(now: (() => Date) | undefined) {
+  return (now ? now() : new Date()).toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

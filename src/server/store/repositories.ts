@@ -6,6 +6,7 @@ import {
   callSchema,
   modelAssetSchema,
   modelRuntimeSchema,
+  toolExecutionLogSchema,
   toolSchema,
   voiceSchema,
 } from "@/domain/schemas";
@@ -15,6 +16,7 @@ import type {
   CallEvent,
   ModelRuntime,
   Tool,
+  ToolExecutionLog,
   Voice,
 } from "@/domain/types";
 import type { DatabaseConnection } from "./database";
@@ -49,6 +51,11 @@ export interface Repositories {
     list(): Tool[];
     get(id: string): Tool | null;
     save(tool: Tool): Tool;
+  };
+  toolExecutions: {
+    append(input: Omit<ToolExecutionLog, "id">): ToolExecutionLog;
+    list(): ToolExecutionLog[];
+    listForTool(toolId: string): ToolExecutionLog[];
   };
   calls: {
     list(): Call[];
@@ -91,6 +98,32 @@ export function createRepositories(db: DatabaseConnection): Repositories {
       list: tools.list,
       get: tools.get,
       save: tools.save,
+    },
+    toolExecutions: {
+      append(input) {
+        const log = toolExecutionLogSchema.parse({
+          id: nanoid(),
+          ...input,
+        });
+
+        db.prepare(
+          "INSERT INTO tool_execution_logs (id, tool_id, timestamp, data) VALUES (?, ?, ?, ?)",
+        ).run(log.id, log.toolId, log.timestamp, JSON.stringify(log));
+
+        return log;
+      },
+      list() {
+        return db
+          .prepare("SELECT data FROM tool_execution_logs ORDER BY timestamp DESC, id DESC")
+          .all()
+          .map((row) => toolExecutionLogSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
+      listForTool(toolId) {
+        return db
+          .prepare("SELECT data FROM tool_execution_logs WHERE tool_id = ? ORDER BY timestamp DESC, id DESC")
+          .all(toolId)
+          .map((row) => toolExecutionLogSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
     },
     calls: {
       list: calls.list,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { KeyRound, Plus, Wrench } from "lucide-react";
+import { KeyRound, Play, Plus, Wrench } from "lucide-react";
 
 import { getJson, postJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Tool } from "@/domain/types";
+import type { Tool, ToolExecutionLog } from "@/domain/types";
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
 
@@ -18,6 +18,8 @@ const defaultToolForm = {
   method: "GET" as Tool["method"],
   url: "https://example.com",
   authMode: "none" as Tool["authMode"],
+  headerName: "",
+  headerValue: "",
   parameter: "",
   timeoutMs: 5000,
   retryCount: 0,
@@ -26,10 +28,13 @@ const defaultToolForm = {
 
 export function ToolsPage() {
   const [tools, setTools] = useState<Tool[]>([]);
+  const [executionLogs, setExecutionLogs] = useState<ToolExecutionLog[]>([]);
   const [form, setForm] = useState(defaultToolForm);
+  const [testArgs, setTestArgs] = useState("{\"orderId\":\"A123\"}");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [executeState, setExecuteState] = useState<SaveState>("idle");
 
   useEffect(() => {
     let isCurrent = true;
@@ -39,9 +44,13 @@ export function ToolsPage() {
       setError(null);
 
       try {
-        const nextTools = await getJson<Tool[]>("/api/tools");
+        const [nextTools, nextExecutionLogs] = await Promise.all([
+          getJson<Tool[]>("/api/tools"),
+          getJson<ToolExecutionLog[]>("/api/tools/executions").catch(() => []),
+        ]);
         if (!isCurrent) return;
         setTools(nextTools);
+        setExecutionLogs(nextExecutionLogs);
       } catch (loadError) {
         if (!isCurrent) return;
         setError(loadError instanceof Error ? loadError.message : "Unable to load tools.");
@@ -61,6 +70,7 @@ export function ToolsPage() {
 
   async function saveTool() {
     const now = new Date().toISOString();
+    const headers = headersFromForm(form);
     const tool: Tool = {
       id: createToolId(form.name),
       name: form.name.trim(),
@@ -68,7 +78,7 @@ export function ToolsPage() {
       method: form.method,
       url: form.url.trim(),
       authMode: form.authMode,
-      headers: [],
+      headers,
       parameters: form.parameter.trim()
         ? [{ name: form.parameter.trim(), type: "string", required: true }]
         : [],
@@ -90,6 +100,31 @@ export function ToolsPage() {
       setSaveState("saved");
     } catch {
       setSaveState("failed");
+    }
+  }
+
+  async function runSelectedTool() {
+    if (!selectedTool) return;
+
+    let parsedArgs: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(testArgs) as unknown;
+      parsedArgs = isRecord(parsed) ? parsed : {};
+    } catch {
+      setExecuteState("failed");
+      return;
+    }
+
+    setExecuteState("saving");
+    try {
+      const log = await postJson<ToolExecutionLog>("/api/tools/execute", {
+        toolId: selectedTool.id,
+        arguments: parsedArgs,
+      });
+      setExecutionLogs((currentLogs) => [log, ...currentLogs.filter((currentLog) => currentLog.id !== log.id)]);
+      setExecuteState("saved");
+    } catch {
+      setExecuteState("failed");
     }
   }
 
@@ -294,6 +329,32 @@ export function ToolsPage() {
                   />
                 </div>
               </div>
+              {form.authMode !== "none" ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-header-name">Header name</Label>
+                    <Input
+                      id="tool-header-name"
+                      value={form.authMode === "bearer" ? "authorization" : form.headerName}
+                      disabled={form.authMode === "bearer"}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, headerName: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-header-value">Header value</Label>
+                    <Input
+                      id="tool-header-value"
+                      value={form.headerValue}
+                      type="password"
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, headerValue: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
               <Button
                 type="button"
                 disabled={saveState === "saving" || !form.name.trim() || !form.description.trim()}
@@ -311,21 +372,65 @@ export function ToolsPage() {
           </Card>
 
           {selectedTool ? (
-            <Card>
-              <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-                <div>
-                  <CardTitle>Execution readiness</CardTitle>
-                  <CardDescription>Stored tool configuration</CardDescription>
-                </div>
-                <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Tool execution is stored and assignable now. Runtime execution and redacted request logs are the next
-                  backend step.
-                </p>
-              </CardContent>
-            </Card>
+            <>
+              <Card>
+                <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+                  <div>
+                    <CardTitle>Run tool</CardTitle>
+                    <CardDescription>{selectedTool.name}</CardDescription>
+                  </div>
+                  <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-test-arguments">Test arguments</Label>
+                    <Textarea
+                      id="tool-test-arguments"
+                      className="min-h-24 font-mono"
+                      value={testArgs}
+                      onChange={(event) => {
+                        setExecuteState("idle");
+                        setTestArgs(event.target.value);
+                      }}
+                    />
+                  </div>
+                  <Button type="button" onClick={() => void runSelectedTool()} disabled={executeState === "saving"}>
+                    <Play aria-hidden="true" />
+                    {executeState === "saving" ? "Running..." : "Run tool"}
+                  </Button>
+                  {executeState === "saved" ? (
+                    <Badge variant="success">Tool executed</Badge>
+                  ) : executeState === "failed" ? (
+                    <Badge variant="danger">Execution failed</Badge>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Execution logs</CardTitle>
+                  <CardDescription>Recent request and response results</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  {executionLogs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No tool executions recorded.</p>
+                  ) : (
+                    executionLogs.slice(0, 5).map((log) => (
+                      <div key={log.id} className="grid gap-2 rounded-md border border-border p-3 text-sm">
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          <span className="truncate font-medium">{log.toolName}</span>
+                          <Badge variant={log.ok ? "success" : "danger"}>
+                            {log.ok ? String(log.status) : log.error ?? "failed"}
+                          </Badge>
+                        </div>
+                        <p className="break-all text-xs text-muted-foreground">{log.request?.url}</p>
+                        <p className="break-words text-sm">{formatResponseBody(log.response?.body)}</p>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </>
           ) : null}
         </div>
       </div>
@@ -341,4 +446,43 @@ function createToolId(name: string) {
     .replace(/^_+|_+$/g, "");
 
   return `tool_${slug || Date.now()}`;
+}
+
+function headersFromForm(form: typeof defaultToolForm): Tool["headers"] {
+  if (form.authMode === "none" || !form.headerValue.trim()) {
+    return [];
+  }
+
+  if (form.authMode === "bearer") {
+    return [{ name: "authorization", value: `Bearer ${form.headerValue.trim()}`, secret: true }];
+  }
+
+  if (!form.headerName.trim()) {
+    return [];
+  }
+
+  return [{ name: form.headerName.trim(), value: form.headerValue, secret: true }];
+}
+
+function formatResponseBody(body: string | undefined) {
+  if (!body) {
+    return "No response body";
+  }
+
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (isRecord(parsed)) {
+      return Object.entries(parsed)
+        .map(([key, value]) => `${key}: ${String(value)}`)
+        .join(", ");
+    }
+  } catch {
+    return body;
+  }
+
+  return body;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

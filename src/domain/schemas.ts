@@ -123,6 +123,31 @@ export const toolSchema = z.object({
   updatedAt: isoDateSchema,
 });
 
+export const toolExecutionLogSchema = z.object({
+  id: z.string().min(1),
+  toolId: z.string().min(1),
+  toolName: z.string().min(1),
+  timestamp: isoDateSchema,
+  ok: z.boolean(),
+  status: z.number().int().min(0),
+  attempts: z.number().int().min(0),
+  durationMs: z.number().min(0),
+  error: z.string().nullable(),
+  request: z.object({
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+    url: z.string().min(1),
+    headers: z.array(
+      z.object({
+        name: z.string().min(1),
+        value: z.string(),
+      }),
+    ),
+  }),
+  response: z.object({
+    body: z.string(),
+  }),
+});
+
 export const callSchema = z.object({
   id: z.string().min(1),
   channel: z.enum(["web", "phone", "simulation"]),

@@ -108,6 +108,26 @@ export interface Tool {
   updatedAt: string;
 }
 
+export interface ToolExecutionLog {
+  id: string;
+  toolId: string;
+  toolName: string;
+  timestamp: string;
+  ok: boolean;
+  status: number;
+  attempts: number;
+  durationMs: number;
+  error: string | null;
+  request: {
+    method: Tool["method"];
+    url: string;
+    headers: Array<{ name: string; value: string }>;
+  };
+  response: {
+    body: string;
+  };
+}
+
 export interface Call {
   id: string;
   channel: "web" | "phone" | "simulation";

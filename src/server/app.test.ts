@@ -114,6 +114,72 @@ describe("server app", () => {
     expect(tools.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "tool_schedule_demo" })]));
   });
 
+  it("executes a tool and stores a redacted execution log", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ status: "shipped" }, { status: 200 }));
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      toolFetch: fetchImpl,
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const tool = {
+      id: "tool_secure_lookup",
+      name: "Secure lookup",
+      description: "Look up secure order state.",
+      method: "GET",
+      url: "https://example.com/orders/{orderId}",
+      authMode: "header",
+      headers: [{ name: "authorization", value: "Bearer secret", secret: true }],
+      parameters: [{ name: "orderId", type: "string", required: true }],
+      timeoutMs: 5000,
+      retryCount: 0,
+      responseSchema: "{}",
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    };
+    await request(context.app).post("/api/tools").send(tool).expect(200);
+
+    const executed = await request(context.app)
+      .post("/api/tools/execute")
+      .send({ toolId: "tool_secure_lookup", arguments: { orderId: "A123" } })
+      .expect(200);
+    const logs = await request(context.app).get("/api/tools/executions").expect(200);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://example.com/orders/A123",
+      expect.objectContaining({
+        method: "GET",
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+    expect(executed.body).toMatchObject({
+      toolId: "tool_secure_lookup",
+      ok: true,
+      status: 200,
+      request: {
+        headers: [{ name: "authorization", value: "[redacted]" }],
+      },
+      response: { body: "{\"status\":\"shipped\"}" },
+    });
+    expect(logs.body[0]).toMatchObject({
+      id: expect.any(String),
+      toolId: "tool_secure_lookup",
+      timestamp: "2026-05-31T00:00:00.000Z",
+      request: {
+        headers: [{ name: "authorization", value: "[redacted]" }],
+      },
+    });
+  });
+
+  it("returns tool_not_found for missing tool execution requests", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    const response = await request(app)
+      .post("/api/tools/execute")
+      .send({ toolId: "missing_tool", arguments: {} })
+      .expect(404);
+
+    expect(response.body).toEqual({ code: "tool_not_found" });
+  });
+
   it("exposes a context close hook", () => {
     const context = createAppContextForTest(
       createDefaultWorkspace("2026-05-29T00:00:00.000Z"),
