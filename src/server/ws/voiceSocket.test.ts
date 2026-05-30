@@ -1,7 +1,12 @@
 import { createServer } from "node:http";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
-import { attachVoiceSocket, type VoiceSocketLifecycle, type VoiceSocketRecordedEvent } from "./voiceSocket";
+import {
+  attachVoiceSocket,
+  type VoiceSocketLifecycle,
+  type VoiceSocketRecordedEvent,
+  type VoiceSocketSessionContext,
+} from "./voiceSocket";
 
 let server: ReturnType<typeof createServer> | null = null;
 let voiceSocket: VoiceSocketLifecycle | null = null;
@@ -257,6 +262,38 @@ describe("voice socket", () => {
     const ws = connect("/api/realtime?token=valid_token");
     await waitForOpen(ws);
     expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("passes validated realtime session context to call creation and audio processing", async () => {
+    const contexts: Array<VoiceSocketSessionContext | undefined> = [];
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      validateSessionToken: (token) => token === "valid_token" && { agentId: "agent_support" },
+      checkReady: async (context) => {
+        contexts.push(context);
+        return { ready: true };
+      },
+      createCallSession: async (context) => {
+        contexts.push(context);
+        return null;
+      },
+      processAudio: async (_input, context) => {
+        contexts.push(context);
+        return { events: [] };
+      },
+    });
+
+    await listen();
+    const ws = connect("/api/realtime?token=valid_token");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm", audioBase64: "in" }));
+    await readJsonMessages(ws, 3);
+
+    expect(contexts).toEqual([
+      { agentId: "agent_support" },
+      { agentId: "agent_support" },
+      { agentId: "agent_support" },
+    ]);
   });
 
   it("rejects audio chunks that exceed the configured decoded byte limit", async () => {

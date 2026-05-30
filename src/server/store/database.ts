@@ -44,6 +44,12 @@ function runMigrations(db: DatabaseConnection): void {
       data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS consent_records (
+      id TEXT PRIMARY KEY,
+      voice_id TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS tools (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL
@@ -111,6 +117,9 @@ function runMigrations(db: DatabaseConnection): void {
 
     CREATE INDEX IF NOT EXISTS voice_samples_created_idx
       ON voice_samples (created_at);
+
+    CREATE INDEX IF NOT EXISTS consent_records_voice_idx
+      ON consent_records (voice_id);
 
     CREATE INDEX IF NOT EXISTS knowledge_documents_base_idx
       ON knowledge_documents (knowledge_base_id);

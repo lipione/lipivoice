@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VoiceConsolePage } from "./VoiceConsolePage";
 
@@ -76,10 +76,50 @@ function stubMic() {
   return { getUserMedia, stop };
 }
 
-function stubRealtimeSession(token = "session_token") {
-  const fetch = vi.fn(async () =>
-    Response.json({ token, expiresAt: "2026-05-30T00:00:30.000Z" }, { status: 201 }),
-  );
+const defaultAgents = [
+  {
+    id: "agent_reception",
+    name: "Reception Agent",
+    greeting: "Hi",
+    systemPrompt: "Help callers.",
+    language: "en",
+    modelRuntimeId: "runtime_vllm",
+    modelAssetId: "model_vllm_remote",
+    voiceId: "voice_lipi_ml_en",
+    transcriberRuntimeId: "runtime_lipi_ml_stt",
+    recordingEnabled: false,
+    interruptionSensitivity: "medium",
+    toolIds: [],
+    knowledgeBaseIds: [],
+    deploymentState: "ready",
+    createdAt: "2026-05-30T00:00:00.000Z",
+    updatedAt: "2026-05-30T00:00:00.000Z",
+  },
+];
+
+function stubRealtimeSession(
+  token = "session_token",
+  options: {
+    agents?: typeof defaultAgents;
+    sessionResponse?: Response;
+  } = {},
+) {
+  const agents = options.agents ?? defaultAgents;
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/agents") {
+      return Response.json(agents);
+    }
+
+    if (url === "/api/realtime/session") {
+      return options.sessionResponse ?? Response.json(
+        { token, agentId: agents[0]?.id ?? null, expiresAt: "2026-05-30T00:00:30.000Z" },
+        { status: 201 },
+      );
+    }
+
+    return Response.json({ code: "not_found" }, { status: 404 });
+  });
   vi.stubGlobal("fetch", fetch);
 
   return fetch;
@@ -97,12 +137,51 @@ function deferred<T>() {
 }
 
 describe("VoiceConsolePage", () => {
+  beforeEach(() => {
+    stubRealtimeSession();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     MockWebSocket.instances = [];
     MockMediaRecorder.instances = [];
     MockMediaRecorder.throwOnConstruct = false;
     MockMediaRecorder.throwOnStart = false;
+  });
+
+  it("loads agents, starts the selected agent session, and shows session metrics", async () => {
+    const user = userEvent.setup();
+    const fetch = stubRealtimeSession("token_support", {
+      agents: [
+        defaultAgents[0],
+        {
+          ...defaultAgents[0],
+          id: "agent_support",
+          name: "Support Agent",
+        },
+      ],
+    });
+    stubMic();
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    render(<VoiceConsolePage />);
+
+    await user.selectOptions(await screen.findByLabelText("Agent"), "agent_support");
+    await user.click(screen.getByRole("button", { name: /Start/ }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/realtime/session",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ agentId: "agent_support" }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Session token expires 2026-05-30T00:00:30.000Z")).toBeInTheDocument();
+    expect(screen.getByText("0 transcript")).toBeInTheDocument();
+    expect(screen.getByText("0 audio")).toBeInTheDocument();
   });
 
   it("shows a clear unsupported error when recording is unavailable", async () => {
@@ -130,7 +209,13 @@ describe("VoiceConsolePage", () => {
     await user.click(screen.getByRole("button", { name: /Start/ }));
 
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
-    expect(fetch).toHaveBeenCalledWith("/api/realtime/session", expect.objectContaining({ method: "POST" }));
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/realtime/session",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ agentId: "agent_reception" }),
+      }),
+    );
     expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/realtime?token=token_123");
     expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
 
@@ -386,7 +471,14 @@ describe("VoiceConsolePage", () => {
   it("stops before opening a socket when realtime session creation fails", async () => {
     const user = userEvent.setup();
     const { stop } = stubMic();
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: "runtime_not_configured" }, { status: 409 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === "/api/agents"
+          ? Response.json(defaultAgents)
+          : Response.json({ code: "runtime_not_configured" }, { status: 409 }),
+      ),
+    );
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 

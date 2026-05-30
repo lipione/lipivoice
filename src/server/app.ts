@@ -14,6 +14,7 @@ import {
 } from "@/domain/schemas";
 import type {
   Agent,
+  ConsentRecord,
   ConfiguredState,
   EvalCase,
   EvalCheck,
@@ -338,33 +339,39 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
   });
 
-  app.get("/api/model-runtimes", async (_request, response, next) => {
+  async function sendModelRuntimes(response: express.Response, next: express.NextFunction) {
     try {
-      const runtimes = await Promise.all(
-        repositories.runtimes.list().map(async (runtime) => {
-          const checkHealth = deps.runtimeHealth?.[runtime.adapter];
-          if (!checkHealth) {
-            return runtime;
-          }
-
-          const health = await checkHealth();
-
-          return {
-            ...runtime,
-            configuredState: configuredStateFromHealth(health),
-            healthStatus: health.status,
-          };
-        }),
-      );
-
-      response.json(runtimes);
+      response.json(await listModelRuntimes(repositories, deps.runtimeHealth));
     } catch (error) {
       next(error);
     }
+  }
+
+  app.get("/api/model-runtimes", async (_request, response, next) => {
+    await sendModelRuntimes(response, next);
   });
 
-  app.post("/api/realtime/session", (_request, response) => {
-    response.status(201).json(realtimeSessions.createSession());
+  app.post("/api/model-runtimes/health", async (_request, response, next) => {
+    await sendModelRuntimes(response, next);
+  });
+
+  app.post("/api/realtime/session", (request, response) => {
+    const requestedAgentId = typeof request.body?.agentId === "string" && request.body.agentId.trim()
+      ? request.body.agentId.trim()
+      : repositories.agents.list()[0]?.id;
+    const agent = requestedAgentId ? repositories.agents.get(requestedAgentId) : null;
+
+    if (!agent) {
+      response.status(404).json({ code: "agent_not_found" });
+      return;
+    }
+
+    response.status(201).json(
+      realtimeSessions.createSession({
+        agentId: agent.id,
+        ttlMs: repositories.settings.get().realtimeSessionTtlSeconds * 1000,
+      }),
+    );
   });
 
   app.get("/api/health", (_request, response) => {
@@ -544,6 +551,60 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
   });
 
+  app.post("/api/voice-clones", (request, response) => {
+    const now = currentTimestamp(deps.now);
+    const voiceName = stringField(request.body?.voiceName);
+    const language = stringField(request.body?.language) || "en-US";
+    const speakerName = stringField(request.body?.speakerName);
+    const consentSource = stringField(request.body?.consentSource);
+    const auditNotes = stringField(request.body?.auditNotes);
+
+    if (!voiceName || !speakerName || !consentSource) {
+      response.status(400).json({ code: "voice_consent_missing" });
+      return;
+    }
+
+    const runtimeId = repositories.runtimes.list().find((runtime) => runtime.kind === "tts")?.id;
+    if (!runtimeId) {
+      response.status(409).json({ code: "runtime_not_configured" });
+      return;
+    }
+
+    const result = repositories.transaction(() => {
+      const slug = createSlug(voiceName);
+      const voiceId = `voice_clone_${slug || Date.now()}`;
+      const consentId = `consent_${slug || Date.now()}`;
+      const consent: ConsentRecord = {
+        id: consentId,
+        voiceId,
+        speakerName,
+        consentSource,
+        capturedAt: now,
+        termsVersion: "lipivoice-consent-v1",
+        auditNotes,
+      };
+      const voice = repositories.voices.save({
+        id: voiceId,
+        name: voiceName,
+        runtimeId,
+        type: "cloned",
+        language,
+        tags: ["cloned", "consent-recorded"],
+        previewUrl: "",
+        privacy: "private",
+        cloneStatus: "pending",
+        consentId,
+      });
+
+      return {
+        voice,
+        consent: repositories.consentRecords.save(consent),
+      };
+    });
+
+    response.status(201).json(result);
+  });
+
   app.post("/api/calls/simulate", (request, response) => {
     const agentId = typeof request.body?.agentId === "string" ? request.body.agentId : "";
     const agent = repositories.agents.get(agentId);
@@ -632,6 +693,25 @@ function configuredStateFromHealth(health: RuntimeHealthResult): ConfiguredState
     : "configured";
 }
 
+async function listModelRuntimes(repositories: Repositories, runtimeHealth: RuntimeHealthChecks | undefined) {
+  return Promise.all(
+    repositories.runtimes.list().map(async (runtime) => {
+      const checkHealth = runtimeHealth?.[runtime.adapter];
+      if (!checkHealth) {
+        return runtime;
+      }
+
+      const health = await checkHealth();
+
+      return {
+        ...runtime,
+        configuredState: configuredStateFromHealth(health),
+        healthStatus: health.status,
+      };
+    }),
+  );
+}
+
 function isMalformedJsonError(error: unknown): boolean {
   return (
     error instanceof SyntaxError &&
@@ -645,6 +725,10 @@ function isMalformedJsonError(error: unknown): boolean {
 
 function currentTimestamp(now: (() => Date) | undefined) {
   return (now ? now() : new Date()).toISOString();
+}
+
+function stringField(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function durationSecondsBetween(startedAt: string, endedAt: string) {
@@ -667,12 +751,16 @@ function countTokens(content: string) {
 }
 
 function createKnowledgeDocumentId(title: string) {
-  const slug = title
+  const slug = createSlug(title);
+
+  return `doc_${slug || Date.now()}`;
+}
+
+function createSlug(value: string) {
+  return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-
-  return `doc_${slug || Date.now()}`;
 }
 
 async function runEval(

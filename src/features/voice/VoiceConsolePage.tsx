@@ -8,9 +8,12 @@ import {
   type VoiceState,
   type VoiceStatus,
 } from "@/client/voiceSocket";
+import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import type { Agent } from "@/domain/types";
 import { cn } from "@/lib/utils";
 
 const initialVoiceState: VoiceState = {
@@ -22,6 +25,9 @@ const initialVoiceState: VoiceState = {
 
 export function VoiceConsolePage() {
   const [voiceState, dispatchVoiceEvent] = useReducer(reduceVoiceEvent, initialVoiceState);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -33,6 +39,29 @@ export function VoiceConsolePage() {
 
   const error = localError ?? voiceState.error;
   const isRecording = voiceState.status !== "idle" && voiceState.status !== "stopped" && voiceState.status !== "failed";
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    void getJson<Agent[]>("/api/agents")
+      .then((nextAgents) => {
+        if (!isCurrent) {
+          return;
+        }
+
+        setAgents(nextAgents);
+        setSelectedAgentId((currentAgentId) => currentAgentId || nextAgents[0]?.id || "");
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setLocalError("agents_load_failed");
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   const cleanupSession = useCallback(
     ({
@@ -70,6 +99,7 @@ export function VoiceConsolePage() {
 
       if (updateState && isMountedRef.current) {
         setLocalError(reason);
+        setSessionExpiresAt(null);
         dispatchVoiceEvent({ type: "status", status, reason: reason ?? undefined });
       }
 
@@ -86,7 +116,13 @@ export function VoiceConsolePage() {
   }, [cleanupSession]);
 
   async function startSession() {
+    if (!selectedAgentId) {
+      setLocalError("agent_required");
+      return;
+    }
+
     setLocalError(null);
+    setSessionExpiresAt(null);
     dispatchVoiceEvent({ type: "status", status: "connecting" });
     const sessionId = nextSessionIdRef.current + 1;
     nextSessionIdRef.current = sessionId;
@@ -117,7 +153,7 @@ export function VoiceConsolePage() {
 
     let realtimeSession: RealtimeSessionResponse;
     try {
-      realtimeSession = await createRealtimeSession();
+      realtimeSession = await createRealtimeSession(selectedAgentId);
     } catch {
       cleanupSession({ status: "failed", reason: "realtime_session_failed" });
       return;
@@ -126,6 +162,7 @@ export function VoiceConsolePage() {
     if (activeSessionIdRef.current !== sessionId) {
       return;
     }
+    setSessionExpiresAt(realtimeSession.expiresAt);
 
     const socket = createVoiceSocket(getRealtimeSocketUrl(realtimeSession.token), {
       onOpen() {
@@ -222,6 +259,23 @@ export function VoiceConsolePage() {
             <CardDescription>Microphone capture and socket control</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="voice-agent">Agent</Label>
+              <select
+                id="voice-agent"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={selectedAgentId}
+                onChange={(event) => setSelectedAgentId(event.target.value)}
+                disabled={isRecording}
+              >
+                {agents.length === 0 ? <option value="">No agents available</option> : null}
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <Button type="button" className="justify-start" onClick={() => void startSession()} disabled={isRecording}>
               <Mic aria-hidden="true" />
               Start
@@ -231,9 +285,23 @@ export function VoiceConsolePage() {
               Stop
             </Button>
             <div className="rounded-md border border-border bg-background p-3 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Audio responses</span>
-                <Badge variant="secondary">{voiceState.audioQueue.length} queued</Badge>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Transcript</span>
+                  <Badge variant="secondary">{voiceState.transcript.length} transcript</Badge>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Audio responses</span>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="secondary">{voiceState.audioQueue.length} audio</Badge>
+                    <Badge variant="outline">{voiceState.audioQueue.length} queued</Badge>
+                  </div>
+                </div>
+                {sessionExpiresAt ? (
+                  <p className="text-xs text-muted-foreground">Session token expires {sessionExpiresAt}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No active realtime token.</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -297,21 +365,26 @@ export function VoiceConsolePage() {
 
 interface RealtimeSessionResponse {
   token: string;
+  agentId: string;
   expiresAt: string;
 }
 
-async function createRealtimeSession(): Promise<RealtimeSessionResponse> {
-  const response = await fetch("/api/realtime/session", { method: "POST" });
+async function createRealtimeSession(agentId: string): Promise<RealtimeSessionResponse> {
+  const response = await fetch("/api/realtime/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agentId }),
+  });
   if (!response.ok) {
     throw new Error("realtime_session_failed");
   }
 
   const body = (await response.json()) as Partial<RealtimeSessionResponse>;
-  if (typeof body.token !== "string" || typeof body.expiresAt !== "string") {
+  if (typeof body.token !== "string" || typeof body.expiresAt !== "string" || typeof body.agentId !== "string") {
     throw new Error("realtime_session_failed");
   }
 
-  return { token: body.token, expiresAt: body.expiresAt };
+  return { token: body.token, agentId: body.agentId, expiresAt: body.expiresAt };
 }
 
 function getRealtimeSocketUrl(token: string) {

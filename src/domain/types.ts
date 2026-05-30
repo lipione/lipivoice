@@ -102,6 +102,16 @@ export interface VoiceSample {
   createdAt: string;
 }
 
+export interface ConsentRecord {
+  id: string;
+  voiceId: string;
+  speakerName: string;
+  consentSource: string;
+  capturedAt: string;
+  termsVersion: string;
+  auditNotes: string;
+}
+
 export interface Tool {
   id: string;
   name: string;

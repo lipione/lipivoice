@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
-import { AudioWaveform, History } from "lucide-react";
+import { AudioWaveform, History, ShieldCheck } from "lucide-react";
 
 import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Voice, VoiceSample } from "@/domain/types";
+import type { ConsentRecord, Voice, VoiceSample } from "@/domain/types";
 
 interface TtsResponse {
   audioBase64: string;
   mimeType: string;
+}
+
+interface VoiceCloneResponse {
+  voice: Voice;
+  consent: ConsentRecord;
 }
 
 type GeneratedAudio = VoiceSample;
@@ -22,8 +28,18 @@ export function VoiceLabPage() {
   const [voiceId, setVoiceId] = useState("");
   const [audio, setAudio] = useState<GeneratedAudio | null>(null);
   const [samples, setSamples] = useState<GeneratedAudio[]>([]);
+  const [cloneForm, setCloneForm] = useState({
+    voiceName: "",
+    language: "en-US",
+    speakerName: "",
+    consentSource: "",
+    auditNotes: "",
+  });
+  const [cloneResult, setCloneResult] = useState<Voice | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCloning, setIsCloning] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -99,6 +115,36 @@ export function VoiceLabPage() {
     }
   }
 
+  async function createCloneRequest() {
+    setIsCloning(true);
+    setCloneError(null);
+
+    try {
+      const response = await fetch("/api/voice-clones", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cloneForm),
+      });
+      const body = (await response.json()) as VoiceCloneResponse | { code?: string };
+
+      if (!response.ok) {
+        throw new Error("code" in body && body.code ? body.code : `Request failed: ${response.status}`);
+      }
+
+      const nextVoice = (body as VoiceCloneResponse).voice;
+      setCloneResult(nextVoice);
+      setVoices((currentVoices) => [
+        ...currentVoices.filter((voice) => voice.id !== nextVoice.id),
+        nextVoice,
+      ]);
+      setVoiceId(nextVoice.id);
+    } catch (cloneRequestError) {
+      setCloneError(cloneRequestError instanceof Error ? cloneRequestError.message : "Unable to create clone request.");
+    } finally {
+      setIsCloning(false);
+    }
+  }
+
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-4" aria-label="Voice Lab">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -113,67 +159,147 @@ export function VoiceLabPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Generate speech</CardTitle>
-            <CardDescription>Local text-to-speech controls</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="tts-text">Text</Label>
-              <Textarea
-                id="tts-text"
-                className="min-h-32"
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="tts-voice">Voice</Label>
-              <select
-                id="tts-voice"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={voiceId}
-                onChange={(event) => setVoiceId(event.target.value)}
-              >
-                {voices.length === 0 ? (
-                  <option value="">No voices available</option>
-                ) : null}
-                {voices.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
-                    {voice.name} - {voice.language}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                onClick={() => void generateSpeech()}
-                disabled={isGenerating || text.trim() === "" || voiceId === ""}
-              >
-                <AudioWaveform aria-hidden="true" />
-                {isGenerating ? "Generating..." : "Generate speech"}
-              </Button>
-              {error ? <Badge variant="danger">{error}</Badge> : null}
-            </div>
-
-            {audio ? (
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Generate speech</CardTitle>
+              <CardDescription>Local text-to-speech controls</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
               <div className="grid gap-2">
-                <p className="text-sm text-muted-foreground">
-                  Generated from "{audio.text}" with {audio.voiceName}
-                </p>
-                <audio
-                  aria-label="Generated speech"
-                  controls
-                  src={`data:${audio.mimeType};base64,${audio.audioBase64}`}
+                <Label htmlFor="tts-text">Text</Label>
+                <Textarea
+                  id="tts-text"
+                  className="min-h-32"
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
                 />
               </div>
-            ) : null}
-          </CardContent>
-        </Card>
+
+              <div className="grid gap-2">
+                <Label htmlFor="tts-voice">Voice</Label>
+                <select
+                  id="tts-voice"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={voiceId}
+                  onChange={(event) => setVoiceId(event.target.value)}
+                >
+                  {voices.length === 0 ? (
+                    <option value="">No voices available</option>
+                  ) : null}
+                  {voices.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name} - {voice.language}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  onClick={() => void generateSpeech()}
+                  disabled={isGenerating || text.trim() === "" || voiceId === ""}
+                >
+                  <AudioWaveform aria-hidden="true" />
+                  {isGenerating ? "Generating..." : "Generate speech"}
+                </Button>
+                {error ? <Badge variant="danger">{error}</Badge> : null}
+              </div>
+
+              {audio ? (
+                <div className="grid gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Generated from "{audio.text}" with {audio.voiceName}
+                  </p>
+                  <audio
+                    aria-label="Generated speech"
+                    controls
+                    src={`data:${audio.mimeType};base64,${audio.audioBase64}`}
+                  />
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Clone request</CardTitle>
+              <CardDescription>Consent-gated private voice record</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="clone-name">Clone name</Label>
+                  <Input
+                    id="clone-name"
+                    value={cloneForm.voiceName}
+                    onChange={(event) => setCloneForm((current) => ({ ...current, voiceName: event.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="clone-language">Language</Label>
+                  <Input
+                    id="clone-language"
+                    value={cloneForm.language}
+                    onChange={(event) => setCloneForm((current) => ({ ...current, language: event.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="clone-speaker">Speaker name</Label>
+                <Input
+                  id="clone-speaker"
+                  value={cloneForm.speakerName}
+                  onChange={(event) => setCloneForm((current) => ({ ...current, speakerName: event.target.value }))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="clone-consent">Consent source</Label>
+                <Textarea
+                  id="clone-consent"
+                  className="min-h-20"
+                  value={cloneForm.consentSource}
+                  onChange={(event) => setCloneForm((current) => ({ ...current, consentSource: event.target.value }))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="clone-audit">Audit notes</Label>
+                <Textarea
+                  id="clone-audit"
+                  className="min-h-20"
+                  value={cloneForm.auditNotes}
+                  onChange={(event) => setCloneForm((current) => ({ ...current, auditNotes: event.target.value }))}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  onClick={() => void createCloneRequest()}
+                  disabled={
+                    isCloning ||
+                    !cloneForm.voiceName.trim() ||
+                    !cloneForm.speakerName.trim() ||
+                    !cloneForm.consentSource.trim()
+                  }
+                >
+                  <ShieldCheck aria-hidden="true" />
+                  {isCloning ? "Creating..." : "Create clone request"}
+                </Button>
+                {cloneError ? <Badge variant="danger">{cloneError}</Badge> : null}
+              </div>
+              {cloneResult ? (
+                <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{cloneResult.name}</p>
+                    <p className="text-xs text-muted-foreground">{cloneResult.language}</p>
+                  </div>
+                  <Badge variant="outline">{cloneResult.cloneStatus}</Badge>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">

@@ -13,6 +13,7 @@ import type {
   VoiceSocketCallSession,
   VoiceSocketDeps,
   VoiceSocketRecordedEvent,
+  VoiceSocketSessionContext,
 } from "@/server/ws/voiceSocket";
 import { writeWebmToWav } from "@/server/audio/wav";
 import { executeTool } from "@/server/tools/executor";
@@ -55,11 +56,11 @@ export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): Vo
 
       return { ready: false, reason: "runtime_not_configured" };
     },
-    async createCallSession() {
-      return createRepositoryCallSession(options.repositories, now);
+    async createCallSession(context) {
+      return createRepositoryCallSession(options.repositories, now, context);
     },
-    async processAudio(input) {
-      const agent = activeAgent(options.repositories);
+    async processAudio(input, context) {
+      const agent = activeAgent(options.repositories, context?.agentId);
       const tools = options.repositories.tools
         .list()
         .filter((tool) => agent.toolIds.includes(tool.id));
@@ -75,7 +76,11 @@ export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): Vo
           tts: runtimes.tts,
           history,
           tools,
-          toolExecutor: (tool, args) => executeTool(tool, args, { fetchImpl: options.toolFetch }),
+          toolExecutor: (tool, args) =>
+            executeTool(tool, args, {
+              fetchImpl: options.toolFetch,
+              allowPrivateUrls: options.repositories.settings.get().allowPrivateToolUrls,
+            }),
         });
 
         history.push(
@@ -94,8 +99,9 @@ export function createVoiceSocketDeps(options: CreateVoiceSocketDepsOptions): Vo
 function createRepositoryCallSession(
   repositories: Repositories,
   now: () => Date,
+  context: VoiceSocketSessionContext | undefined,
 ): VoiceSocketCallSession {
-  const agent = activeAgent(repositories);
+  const agent = activeAgent(repositories, context?.agentId);
   const startedAt = now();
   const call = repositories.transaction(() => {
     const createdCall = repositories.calls.create({
@@ -165,8 +171,8 @@ function createRepositoryCallSession(
   };
 }
 
-function activeAgent(repositories: Repositories): Agent {
-  const agent = repositories.agents.list()[0];
+function activeAgent(repositories: Repositories, agentId?: string | null): Agent {
+  const agent = agentId ? repositories.agents.get(agentId) : repositories.agents.list()[0];
   if (!agent) {
     throw new Error("No voice agent is configured");
   }

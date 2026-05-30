@@ -215,4 +215,83 @@ describe("VoiceLabPage", () => {
     expect(await screen.findByText('Generated from "New clip" with Lipi ML English')).toBeInTheDocument();
     expect(screen.getAllByText("New clip").length).toBeGreaterThan(0);
   });
+
+  it("creates consent-gated clone requests and adds the private voice", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/voices") {
+        return Response.json([
+          {
+            id: "voice_lipi_ml_en",
+            name: "Lipi ML English",
+            runtimeId: "runtime_lipi_ml_tts",
+            type: "builtin",
+            language: "en-US",
+            tags: [],
+            previewUrl: "",
+            privacy: "workspace",
+            cloneStatus: "not_clone",
+            consentId: null,
+          },
+        ]);
+      }
+
+      if (url === "/api/voice-samples") {
+        return Response.json([]);
+      }
+
+      if (url === "/api/voice-clones") {
+        expect(init?.body).toBe(JSON.stringify({
+          voiceName: "Private Asha",
+          language: "en-US",
+          speakerName: "Asha",
+          consentSource: "Written release stored in workspace.",
+          auditNotes: "Approved for internal testing.",
+        }));
+        return Response.json(
+          {
+            voice: {
+              id: "voice_clone_private_asha",
+              name: "Private Asha",
+              runtimeId: "runtime_lipi_ml_tts",
+              type: "cloned",
+              language: "en-US",
+              tags: ["cloned", "consent-recorded"],
+              previewUrl: "",
+              privacy: "private",
+              cloneStatus: "pending",
+              consentId: "consent_private_asha",
+            },
+            consent: {
+              id: "consent_private_asha",
+              voiceId: "voice_clone_private_asha",
+              speakerName: "Asha",
+              consentSource: "Written release stored in workspace.",
+              capturedAt: "2026-05-31T00:00:00.000Z",
+              termsVersion: "lipivoice-consent-v1",
+              auditNotes: "Approved for internal testing.",
+            },
+          },
+          { status: 201 },
+        );
+      }
+
+      return Response.json({ code: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<VoiceLabPage />);
+
+    await user.type(await screen.findByLabelText("Clone name"), "Private Asha");
+    await user.type(screen.getByLabelText("Speaker name"), "Asha");
+    await user.type(screen.getByLabelText("Consent source"), "Written release stored in workspace.");
+    await user.type(screen.getByLabelText("Audit notes"), "Approved for internal testing.");
+    await user.click(screen.getByRole("button", { name: "Create clone request" }));
+
+    expect(await screen.findByText("Private Asha")).toBeInTheDocument();
+    expect(screen.getByText("pending")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Private Asha - en-US" })).toBeInTheDocument();
+  });
 });

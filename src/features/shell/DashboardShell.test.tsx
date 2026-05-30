@@ -14,6 +14,7 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("button", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Web Voice" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Phone Numbers" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "SDK Playground" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeInTheDocument();
     expect(screen.getByText("Overview content")).toBeInTheDocument();
     expect(screen.getByLabelText("LipiVoice")).toBeInTheDocument();

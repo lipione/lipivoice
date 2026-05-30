@@ -5,6 +5,7 @@ import {
   Database,
   FlaskConical,
   Gauge,
+  Code2,
   ListChecks,
   Mic,
   Phone,
@@ -30,6 +31,7 @@ export type PageId =
   | "knowledge"
   | "evals"
   | "usage"
+  | "sdk"
   | "settings";
 
 interface DashboardShellProps {
@@ -55,6 +57,7 @@ export const pageLabels: Record<PageId, string> = {
   knowledge: "Knowledge Base",
   evals: "Evals",
   usage: "Usage",
+  sdk: "SDK Playground",
   settings: "Settings",
 };
 
@@ -69,6 +72,7 @@ const navigationItems: NavigationItem[] = [
   { id: "knowledge", label: pageLabels.knowledge, icon: Database },
   { id: "evals", label: pageLabels.evals, icon: FlaskConical },
   { id: "usage", label: pageLabels.usage, icon: Gauge },
+  { id: "sdk", label: pageLabels.sdk, icon: Code2 },
   { id: "settings", label: pageLabels.settings, icon: Settings },
 ];
 

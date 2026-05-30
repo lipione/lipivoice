@@ -43,6 +43,26 @@ describe("server app", () => {
     );
   });
 
+  it("returns model runtime health from the explicit health endpoint", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      runtimeHealth: {
+        ollama: async () => ({ status: "healthy", reason: null }),
+      },
+    });
+
+    const response = await request(app).post("/api/model-runtimes/health").send({}).expect(200);
+
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adapter: "ollama",
+          configuredState: "configured",
+          healthStatus: "healthy",
+        }),
+      ]),
+    );
+  });
+
   it("returns a local usage summary", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
     const agent = context.repositories.agents.list()[0];
@@ -104,13 +124,43 @@ describe("server app", () => {
       now: () => new Date("2026-05-30T00:00:00.000Z"),
     });
 
-    const response = await request(app).post("/api/realtime/session").send({}).expect(201);
+    const response = await request(app)
+      .post("/api/realtime/session")
+      .send({ agentId: "agent_reception" })
+      .expect(201);
 
     expect(response.body).toEqual({
       token: expect.any(String),
+      agentId: "agent_reception",
       expiresAt: "2026-05-30T00:01:00.000Z",
     });
     expect(response.body.token.length).toBeGreaterThan(20);
+  });
+
+  it("uses workspace realtime TTL and rejects unknown realtime session agents", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const settings = await request(app).get("/api/settings").expect(200);
+    await request(app)
+      .post("/api/settings")
+      .send({ ...settings.body, realtimeSessionTtlSeconds: 120 })
+      .expect(200);
+
+    const session = await request(app)
+      .post("/api/realtime/session")
+      .send({ agentId: "agent_reception" })
+      .expect(201);
+    const missing = await request(app)
+      .post("/api/realtime/session")
+      .send({ agentId: "missing_agent" })
+      .expect(404);
+
+    expect(session.body).toMatchObject({
+      agentId: "agent_reception",
+      expiresAt: "2026-05-31T00:02:00.000Z",
+    });
+    expect(missing.body).toEqual({ code: "agent_not_found" });
   });
 
   it("returns seeded tool definitions", async () => {
@@ -629,6 +679,47 @@ describe("server app", () => {
       createdAt: "2026-05-31T00:00:00.000Z",
     });
     expect(samples.body[0]).toMatchObject({ id: generated.body.id, text: "Hello history" });
+  });
+
+  it("creates consent-gated private voice clone requests", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const missingConsent = await request(app)
+      .post("/api/voice-clones")
+      .send({ voiceName: "Private Voice", language: "en-US" })
+      .expect(400);
+    const created = await request(app)
+      .post("/api/voice-clones")
+      .send({
+        voiceName: "Private Voice",
+        language: "en-US",
+        speakerName: "Asha",
+        consentSource: "Recorded written approval on file.",
+        auditNotes: "Demo clone request.",
+      })
+      .expect(201);
+    const voices = await request(app).get("/api/voices").expect(200);
+
+    expect(missingConsent.body).toEqual({ code: "voice_consent_missing" });
+    expect(created.body).toMatchObject({
+      voice: {
+        id: expect.stringMatching(/^voice_clone_/),
+        name: "Private Voice",
+        type: "cloned",
+        privacy: "private",
+        cloneStatus: "pending",
+        consentId: expect.stringMatching(/^consent_/),
+      },
+      consent: {
+        speakerName: "Asha",
+        consentSource: "Recorded written approval on file.",
+        auditNotes: "Demo clone request.",
+        capturedAt: "2026-05-31T00:00:00.000Z",
+      },
+    });
+    expect(voices.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.voice.id })]));
   });
 
   it("rejects unknown TTS voices before synthesizing", async () => {

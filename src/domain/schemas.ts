@@ -109,6 +109,16 @@ export const voiceSampleSchema = z.object({
   createdAt: isoDateSchema,
 });
 
+export const consentRecordSchema = z.object({
+  id: z.string().min(1),
+  voiceId: z.string().min(1),
+  speakerName: z.string().min(1),
+  consentSource: z.string().min(1),
+  capturedAt: isoDateSchema,
+  termsVersion: z.string().min(1),
+  auditNotes: z.string(),
+});
+
 export const toolSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),

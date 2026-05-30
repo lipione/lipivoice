@@ -1,5 +1,6 @@
 import type {
   Agent,
+  ConsentRecord,
   EvalDefinition,
   KnowledgeBase,
   KnowledgeDocument,
@@ -25,6 +26,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   modelAssets: ModelAsset[];
   voices: Voice[];
   voiceSamples: VoiceSample[];
+  consentRecords: ConsentRecord[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
@@ -181,6 +183,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
       },
     ],
     voiceSamples: [],
+    consentRecords: [],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),
@@ -196,6 +199,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   modelAssets: ModelAsset[];
   voices: Voice[];
   voiceSamples: VoiceSample[];
+  consentRecords: ConsentRecord[];
   tools: Tool[];
   phoneNumbers: PhoneNumber[];
   knowledgeBases: KnowledgeBase[];
@@ -367,6 +371,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
       },
     ],
     voiceSamples: [],
+    consentRecords: [],
     tools: createSeedTools(now),
     phoneNumbers: createSeedPhoneNumbers(now),
     knowledgeBases: createSeedKnowledgeBases(now),

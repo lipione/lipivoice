@@ -9,6 +9,7 @@ import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
+import { SdkPlaygroundPage } from "@/features/sdk/SdkPlaygroundPage";
 import { ToolsPage } from "@/features/tools/ToolsPage";
 import { UsagePage } from "@/features/usage/UsagePage";
 import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
@@ -36,6 +37,8 @@ export function App() {
         <KnowledgeBasePage />
       ) : activePage === "usage" ? (
         <UsagePage />
+      ) : activePage === "sdk" ? (
+        <SdkPlaygroundPage />
       ) : activePage === "evals" ? (
         <EvalsPage />
       ) : activePage === "voice-lab" ? (

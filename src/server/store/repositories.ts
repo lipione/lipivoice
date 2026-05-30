@@ -4,6 +4,7 @@ import {
   agentSchema,
   callEventSchema,
   callSchema,
+  consentRecordSchema,
   evalDefinitionSchema,
   evalRunSchema,
   knowledgeBaseSchema,
@@ -22,6 +23,7 @@ import type {
   Agent,
   Call,
   CallEvent,
+  ConsentRecord,
   EvalDefinition,
   EvalRun,
   KnowledgeBase,
@@ -42,6 +44,7 @@ type TableName =
   | "model_runtimes"
   | "model_assets"
   | "voices"
+  | "consent_records"
   | "tools"
   | "phone_numbers"
   | "knowledge_bases"
@@ -66,10 +69,16 @@ export interface Repositories {
   voices: {
     list(): Voice[];
     get(id: string): Voice | null;
+    save(voice: Voice): Voice;
   };
   voiceSamples: {
     append(input: Omit<VoiceSample, "id">): VoiceSample;
     list(): VoiceSample[];
+  };
+  consentRecords: {
+    list(): ConsentRecord[];
+    get(id: string): ConsentRecord | null;
+    save(consent: ConsentRecord): ConsentRecord;
   };
   tools: {
     list(): Tool[];
@@ -132,6 +141,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
   const runtimes = createJsonRepository(db, "model_runtimes", modelRuntimeSchema.parse);
   const modelAssets = createJsonRepository(db, "model_assets", modelAssetSchema.parse);
   const voices = createJsonRepository(db, "voices", voiceSchema.parse);
+  const consentRecords = createJsonRepository(db, "consent_records", consentRecordSchema.parse);
   const tools = createJsonRepository(db, "tools", toolSchema.parse);
   const phoneNumbers = createJsonRepository(db, "phone_numbers", phoneNumberSchema.parse);
   const knowledgeBases = createJsonRepository(db, "knowledge_bases", knowledgeBaseSchema.parse);
@@ -152,6 +162,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
     voices: {
       list: voices.list,
       get: voices.get,
+      save: voices.save,
     },
     voiceSamples: {
       append(input) {
@@ -171,6 +182,21 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           .prepare("SELECT data FROM voice_samples ORDER BY created_at DESC, id DESC")
           .all()
           .map((row) => voiceSampleSchema.parse(JSON.parse((row as StoredRow).data)));
+      },
+    },
+    consentRecords: {
+      list: consentRecords.list,
+      get: consentRecords.get,
+      save(consent) {
+        const parsed = consentRecordSchema.parse(consent);
+        db.prepare(`
+          INSERT INTO consent_records (id, voice_id, data)
+          VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            voice_id = excluded.voice_id,
+            data = excluded.data
+        `).run(parsed.id, parsed.voiceId, JSON.stringify(parsed));
+        return parsed;
       },
     },
     tools: {
@@ -343,6 +369,14 @@ export function createRepositories(db: DatabaseConnection): Repositories {
           db.prepare("INSERT OR IGNORE INTO voice_samples (id, created_at, data) VALUES (?, ?, ?)").run(
             parsed.id,
             parsed.createdAt,
+            JSON.stringify(parsed),
+          );
+        });
+        seed.consentRecords.forEach((consent) => {
+          const parsed = consentRecordSchema.parse(consent);
+          db.prepare("INSERT OR IGNORE INTO consent_records (id, voice_id, data) VALUES (?, ?, ?)").run(
+            parsed.id,
+            parsed.voiceId,
             JSON.stringify(parsed),
           );
         });

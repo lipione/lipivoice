@@ -4,13 +4,17 @@ import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
 export interface VoiceSocketDeps {
-  checkReady(): Promise<{ ready: true } | { ready: false; reason: string }>;
-  processAudio(input: { mimeType: string; audioBase64: string }): Promise<{
+  checkReady(context?: VoiceSocketSessionContext): Promise<{ ready: true } | { ready: false; reason: string }>;
+  processAudio(input: { mimeType: string; audioBase64: string }, context?: VoiceSocketSessionContext): Promise<{
     events: VoiceSocketEvent[];
   }>;
-  createCallSession?(): Promise<VoiceSocketCallSession | null>;
-  validateSessionToken?(token: string): boolean;
+  createCallSession?(context?: VoiceSocketSessionContext): Promise<VoiceSocketCallSession | null>;
+  validateSessionToken?(token: string): boolean | VoiceSocketSessionContext | null;
   maxAudioBytes?: number;
+}
+
+export interface VoiceSocketSessionContext {
+  agentId?: string | null;
 }
 
 export type VoiceSocketEvent = {
@@ -47,6 +51,7 @@ export interface VoiceSocketLifecycle {
 export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceSocketLifecycle {
   const socketServer = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
+  const sessionContexts = new WeakMap<WebSocket, VoiceSocketSessionContext>();
   let closing = false;
   let closed = false;
   let closePromise: Promise<void> | null = null;
@@ -60,12 +65,19 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
       return;
     }
 
-    if (deps.validateSessionToken && !deps.validateSessionToken(url.searchParams.get("token") ?? "")) {
-      socket.destroy();
-      return;
+    let sessionContext: VoiceSocketSessionContext = {};
+    if (deps.validateSessionToken) {
+      const validation = deps.validateSessionToken(url.searchParams.get("token") ?? "");
+      if (!validation) {
+        socket.destroy();
+        return;
+      }
+
+      sessionContext = validation === true ? {} : validation;
     }
 
     socketServer.handleUpgrade(request, socket, head, (webSocket) => {
+      sessionContexts.set(webSocket, sessionContext);
       socketServer.emit("connection", webSocket, request);
     });
   }
@@ -74,6 +86,7 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
 
   socketServer.on("connection", (webSocket) => {
     clients.add(webSocket);
+    const sessionContext = sessionContexts.get(webSocket) ?? {};
     let callSession: VoiceSocketCallSession | null = null;
     let callFinished = false;
     let socketClosed = false;
@@ -105,7 +118,7 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
     });
 
     let processing = false;
-    const ready = deps.checkReady().then(
+    const ready = deps.checkReady(sessionContext).then(
       async (result) => {
         if (!result.ready) {
           sendJson(webSocket, { type: "status", status: "failed", reason: result.reason });
@@ -114,7 +127,7 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
         }
 
         if (deps.createCallSession) {
-          callSession = await deps.createCallSession().catch(() => null);
+          callSession = await deps.createCallSession(sessionContext).catch(() => null);
           if (socketClosed) {
             await finishCall({ status: "disconnected", failureReason: null });
           }
@@ -137,6 +150,7 @@ export function attachVoiceSocket(server: Server, deps: VoiceSocketDeps): VoiceS
         },
         recordEvent,
         finishCall,
+        sessionContext,
       });
     });
   });
@@ -190,6 +204,7 @@ async function handleMessage(
     setProcessing(value: boolean): void;
     recordEvent(event: VoiceSocketRecordedEvent): void;
     finishCall(input: { status: string; failureReason: string | null }): Promise<void>;
+    sessionContext: VoiceSocketSessionContext;
   },
 ) {
   const message = parseClientMessage(data);
@@ -221,7 +236,10 @@ async function handleMessage(
   try {
     sendStatus(webSocket, state.recordEvent, "listening");
     sendStatus(webSocket, state.recordEvent, "thinking");
-    const result = await deps.processAudio({ mimeType: message.mimeType, audioBase64: message.audioBase64 });
+    const result = await deps.processAudio(
+      { mimeType: message.mimeType, audioBase64: message.audioBase64 },
+      state.sessionContext,
+    );
     sendStatus(webSocket, state.recordEvent, "speaking");
 
     for (const event of result.events) {

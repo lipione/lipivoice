@@ -124,6 +124,131 @@ describe("voice socket dependencies", () => {
     repositories.close();
   });
 
+  it("uses the realtime session agent when processing audio", async () => {
+    const repositories = createRepositories(createDatabase(":memory:"));
+    repositories.seedWorkspace(
+      createRemoteWorkspace({
+        now: "2026-05-29T00:00:00.000Z",
+        vllmEndpoint: "http://127.0.0.1:8002/v1",
+        vllmModel: "gemma-4",
+        lipiMlEndpoint: "http://127.0.0.1:5001",
+      }),
+    );
+    const reception = repositories.agents.list()[0];
+    repositories.agents.save({
+      ...reception,
+      id: "agent_support",
+      name: "Support Agent",
+      systemPrompt: "Use the support playbook.",
+      voiceId: "voice_lipi_ml_ne",
+    });
+    const llmSystems: string[] = [];
+    const ttsVoicePaths: string[] = [];
+    const deps = createVoiceSocketDeps({
+      config: loadServerConfig({ LIPIVOICE_RUNTIME_PRESET: "remote", VLLM_MODEL: "gemma-4" }),
+      repositories,
+      runtimes: {
+        llm: {
+          health: async () => ({ status: "healthy", reason: null }),
+          chat: async (input) => {
+            llmSystems.push(input.system);
+            return "Support answer";
+          },
+        },
+        stt: {
+          health: async () => ({ status: "healthy", reason: null }),
+          transcribe: async () => ({ text: "Need support", confidence: 0.9 }),
+        },
+        tts: {
+          health: async () => ({ status: "healthy", reason: null }),
+          synthesize: async (input) => {
+            ttsVoicePaths.push(input.voicePath);
+            return { audioBase64: "UklGRg==", mimeType: "audio/wav" };
+          },
+        },
+      },
+      writeAudioChunkToWav: async () => ({ wavPath: "/tmp/remote-turn.wav", cleanup: async () => undefined }),
+    });
+
+    await deps.processAudio({ mimeType: "audio/webm", audioBase64: "aW4=" }, { agentId: "agent_support" });
+    const session = await deps.createCallSession?.({ agentId: "agent_support" });
+    await session?.finish({ status: "disconnected", failureReason: null });
+
+    expect(llmSystems[0]).toContain("Use the support playbook.");
+    expect(ttsVoicePaths).toEqual(["voice_lipi_ml_ne"]);
+    expect(repositories.calls.list()[0]).toMatchObject({ agentId: "agent_support" });
+
+    repositories.close();
+  });
+
+  it("applies workspace private URL policy to voice tool calls", async () => {
+    const repositories = createRepositories(createDatabase(":memory:"));
+    repositories.seedWorkspace(
+      createRemoteWorkspace({
+        now: "2026-05-29T00:00:00.000Z",
+        vllmEndpoint: "http://127.0.0.1:8002/v1",
+        vllmModel: "gemma-4",
+        lipiMlEndpoint: "http://127.0.0.1:5001",
+      }),
+    );
+    const agent = repositories.agents.list()[0];
+    repositories.tools.save({
+      ...repositories.tools.get("tool_order_lookup")!,
+      id: "tool_local_lookup",
+      name: "Local lookup",
+      url: "http://127.0.0.1:5001/orders/{orderId}",
+    });
+    repositories.agents.save({ ...agent, toolIds: ["tool_local_lookup"] });
+    const requestedUrls: string[] = [];
+    const createDeps = () =>
+      createVoiceSocketDeps({
+        config: loadServerConfig({ LIPIVOICE_RUNTIME_PRESET: "remote", VLLM_MODEL: "gemma-4" }),
+        repositories,
+        runtimes: {
+          llm: {
+            health: async () => ({ status: "healthy", reason: null }),
+            chat: async (input) =>
+              input.messages.some((message) => message.content.includes("Tool result"))
+                ? "The local order is ready."
+                : 'TOOL_CALL {"toolId":"tool_local_lookup","arguments":{"orderId":"A123"}}',
+          },
+          stt: {
+            health: async () => ({ status: "healthy", reason: null }),
+            transcribe: async () => ({ text: "Track local order A123", confidence: 0.9 }),
+          },
+          tts: {
+            health: async () => ({ status: "healthy", reason: null }),
+            synthesize: async () => ({ audioBase64: "UklGRg==", mimeType: "audio/wav" }),
+          },
+        },
+        writeAudioChunkToWav: async () => ({ wavPath: "/tmp/remote-turn.wav", cleanup: async () => undefined }),
+        toolFetch: async (url) => {
+          requestedUrls.push(String(url));
+          return Response.json({ status: "ready" });
+        },
+      });
+
+    const blocked = await createDeps().processAudio({ mimeType: "audio/webm", audioBase64: "aW4=" });
+    repositories.settings.save({ ...repositories.settings.get(), allowPrivateToolUrls: true });
+    const allowed = await createDeps().processAudio({ mimeType: "audio/webm", audioBase64: "aW4=" });
+
+    expect(blocked.events[1]).toEqual(
+      expect.objectContaining({
+        type: "tool_call",
+        payload: expect.objectContaining({ ok: false, error: "unsafe_tool_url", attempts: 0 }),
+      }),
+    );
+    expect(allowed.events[1]).toEqual(
+      expect.objectContaining({
+        type: "tool_call",
+        payload: expect.objectContaining({ ok: true, status: 200 }),
+      }),
+    );
+    expect(requestedUrls).toEqual(["http://127.0.0.1:5001/orders/A123"]);
+
+    repositories.close();
+  });
+
   it("reports runtime_not_configured when any remote runtime is unhealthy", async () => {
     const repositories = createRepositories(createDatabase(":memory:"));
     repositories.seedWorkspace(
