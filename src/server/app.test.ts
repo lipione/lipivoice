@@ -84,6 +84,35 @@ describe("server app", () => {
     ]);
   });
 
+  it("returns and saves phone numbers", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+    const seeded = await request(app).get("/api/phone-numbers").expect(200);
+    const phoneNumber = {
+      id: "phone_support",
+      label: "Support line",
+      number: "+15551201002",
+      provider: "simulation",
+      status: "active",
+      agentId: "agent_reception",
+      inboundEnabled: true,
+      outboundEnabled: true,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    };
+
+    const saved = await request(app).post("/api/phone-numbers").send(phoneNumber).expect(200);
+    const current = await request(app).get("/api/phone-numbers").expect(200);
+
+    expect(seeded.body).toEqual([
+      expect.objectContaining({
+        id: "phone_demo_main",
+        agentId: "agent_reception",
+      }),
+    ]);
+    expect(saved.body).toMatchObject({ id: "phone_support", outboundEnabled: true });
+    expect(current.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "phone_support" })]));
+  });
+
   it("saves valid tool definitions and rejects invalid tools", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const validTool = {
@@ -240,6 +269,71 @@ describe("server app", () => {
 
     expect(events.body).toHaveLength(1);
     expect(events.body[0].payload).toEqual({ status: "connected" });
+  });
+
+  it("creates and ends a phone call from a routed number", async () => {
+    const timestamps = [
+      new Date("2026-05-31T00:00:00.000Z"),
+      new Date("2026-05-31T00:00:45.000Z"),
+    ];
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => timestamps.shift() ?? new Date("2026-05-31T00:00:45.000Z"),
+    });
+
+    const started = await request(context.app)
+      .post("/api/calls/phone/start")
+      .send({ phoneNumberId: "phone_demo_main", direction: "inbound" })
+      .expect(201);
+    const ended = await request(context.app).post(`/api/calls/${started.body.call.id}/end`).send({}).expect(200);
+    const events = await request(context.app).get(`/api/calls/${started.body.call.id}/events`).expect(200);
+
+    expect(started.body.call).toMatchObject({
+      channel: "phone",
+      direction: "inbound",
+      agentId: "agent_reception",
+      phoneNumberId: "phone_demo_main",
+      status: "connected",
+    });
+    expect(started.body.events[0].payload).toMatchObject({
+      status: "connected",
+      phoneNumber: "+15551201001",
+    });
+    expect(ended.body.call).toMatchObject({
+      status: "disconnected",
+      endedAt: "2026-05-31T00:00:45.000Z",
+      durationSeconds: 45,
+    });
+    expect(events.body.map((event: { payload: { status?: string } }) => event.payload.status)).toEqual([
+      "connected",
+      "disconnected",
+    ]);
+  });
+
+  it("returns phone_number_unassigned when a number has no routed agent", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+
+    await request(app)
+      .post("/api/phone-numbers")
+      .send({
+        id: "phone_unassigned",
+        label: "Unassigned",
+        number: "+15551201003",
+        provider: "simulation",
+        status: "active",
+        agentId: null,
+        inboundEnabled: true,
+        outboundEnabled: false,
+        createdAt: "2026-05-31T00:00:00.000Z",
+        updatedAt: "2026-05-31T00:00:00.000Z",
+      })
+      .expect(200);
+
+    const response = await request(app)
+      .post("/api/calls/phone/start")
+      .send({ phoneNumberId: "phone_unassigned" })
+      .expect(409);
+
+    expect(response.body).toEqual({ code: "phone_number_unassigned" });
   });
 
   it("returns call_not_found for missing call events", async () => {

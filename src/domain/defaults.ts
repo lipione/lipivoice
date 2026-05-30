@@ -1,4 +1,4 @@
-import type { Agent, ModelAsset, ModelRuntime, Tool, Voice } from "./types";
+import type { Agent, ModelAsset, ModelRuntime, PhoneNumber, Tool, Voice } from "./types";
 
 interface RemoteWorkspaceOptions {
   now?: string;
@@ -13,6 +13,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
   modelAssets: ModelAsset[];
   voices: Voice[];
   tools: Tool[];
+  phoneNumbers: PhoneNumber[];
 } {
   return {
     agents: [
@@ -163,6 +164,7 @@ export function createDefaultWorkspace(now = new Date().toISOString()): {
       },
     ],
     tools: createSeedTools(now),
+    phoneNumbers: createSeedPhoneNumbers(now),
   };
 }
 
@@ -172,6 +174,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
   modelAssets: ModelAsset[];
   voices: Voice[];
   tools: Tool[];
+  phoneNumbers: PhoneNumber[];
 } {
   const now = options.now ?? new Date().toISOString();
   const vllmEndpoint = trimTrailingSlash(options.vllmEndpoint);
@@ -337,6 +340,7 @@ export function createRemoteWorkspace(options: RemoteWorkspaceOptions): {
       },
     ],
     tools: createSeedTools(now),
+    phoneNumbers: createSeedPhoneNumbers(now),
   };
 }
 
@@ -354,6 +358,23 @@ function createSeedTools(now: string): Tool[] {
       timeoutMs: 5000,
       retryCount: 0,
       responseSchema: "{\"status\":\"string\",\"eta\":\"string\"}",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+function createSeedPhoneNumbers(now: string): PhoneNumber[] {
+  return [
+    {
+      id: "phone_demo_main",
+      label: "Main reception line",
+      number: "+15551201001",
+      provider: "simulation",
+      status: "active",
+      agentId: "agent_reception",
+      inboundEnabled: true,
+      outboundEnabled: false,
       createdAt: now,
       updatedAt: now,
     },

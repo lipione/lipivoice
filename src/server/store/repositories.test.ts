@@ -165,6 +165,23 @@ describe("repositories", () => {
     expect(repos.agents.get(agent.id)?.name).toBe("Updated Agent");
   });
 
+  it("persists phone number routing", () => {
+    const seededNumber = repos.phoneNumbers.list()[0];
+
+    repos.phoneNumbers.save({
+      ...seededNumber,
+      label: "Support line",
+      agentId: null,
+      outboundEnabled: true,
+    });
+
+    expect(repos.phoneNumbers.get(seededNumber.id)).toMatchObject({
+      label: "Support line",
+      agentId: null,
+      outboundEnabled: true,
+    });
+  });
+
   it("preserves existing records when seeding defaults again", () => {
     const agent = repos.agents.list()[0];
     repos.agents.save({ ...agent, name: "Locally Edited Agent" });
@@ -205,6 +222,25 @@ describe("repositories", () => {
       "2026-05-29T00:00:02.000Z",
       "2026-05-29T00:00:03.000Z",
     ]);
+  });
+
+  it("persists phone call number references", () => {
+    const agent = repos.agents.list()[0];
+    const phoneNumber = repos.phoneNumbers.list()[0];
+
+    const call = repos.calls.create({
+      channel: "phone",
+      direction: "inbound",
+      agentId: agent.id,
+      phoneNumberId: phoneNumber.id,
+      status: "connected",
+      startedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(repos.calls.get(call.id)).toMatchObject({
+      channel: "phone",
+      phoneNumberId: phoneNumber.id,
+    });
   });
 
   it("keeps call events when updating a call", () => {

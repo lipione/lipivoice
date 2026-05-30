@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, ListChecks, MessageSquareText } from "lucide-react";
+import { Clock, ListChecks, MessageSquareText, PhoneOff } from "lucide-react";
 
-import { getJson } from "@/client/api";
+import { getJson, postJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,6 +80,7 @@ export function CallsPage() {
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [callsError, setCallsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const [endState, setEndState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const eventRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -128,6 +129,7 @@ export function CallsPage() {
     setSelectedCallId(callId);
     setIsLoadingEvents(true);
     setEventsError(null);
+    setEndState("idle");
     setEvents([]);
 
     try {
@@ -143,6 +145,28 @@ export function CallsPage() {
       if (eventRequestIdRef.current === requestId) {
         setIsLoadingEvents(false);
       }
+    }
+  }
+
+  async function endSelectedCall() {
+    if (!selectedCall) return;
+
+    setEndState("saving");
+    try {
+      const result = await postJson<{ call: CallRecord; events: CallEvent[] }>(
+        `/api/calls/${selectedCall.id}/end`,
+        {},
+      );
+      setCalls((currentCalls) =>
+        currentCalls.map((call) => (call.id === result.call.id ? result.call : call)),
+      );
+      setEvents((currentEvents) => [
+        ...currentEvents,
+        ...result.events.filter((event) => !currentEvents.some((currentEvent) => currentEvent.id === event.id)),
+      ]);
+      setEndState("saved");
+    } catch {
+      setEndState("failed");
     }
   }
 
@@ -242,7 +266,7 @@ export function CallsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{selectedCall.direction} {selectedCall.channel}</span>
                     <Badge variant={selectedCall.status === "failed" ? "danger" : "outline"}>
-                      Status
+                      {selectedCall.status}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
@@ -250,9 +274,29 @@ export function CallsPage() {
                     <span>
                       Estimate <span>{formatMoney(selectedCall.costEstimateUsd)}</span>
                     </span>
+                    {selectedCall.phoneNumberId ? <span>Number {selectedCall.phoneNumberId}</span> : null}
                     <span>Started {selectedCall.startedAt}</span>
                     <span>Ended {selectedCall.endedAt ?? "open"}</span>
                   </div>
+                  {!selectedCall.endedAt && selectedCall.status !== "failed" && selectedCall.status !== "disconnected" ? (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void endSelectedCall()}
+                        disabled={endState === "saving"}
+                      >
+                        <PhoneOff aria-hidden="true" />
+                        {endState === "saving" ? "Ending..." : "End call"}
+                      </Button>
+                      {endState === "saved" ? (
+                        <Badge variant="success">Call ended</Badge>
+                      ) : endState === "failed" ? (
+                        <Badge variant="danger">End failed</Badge>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 {isLoadingEvents ? (

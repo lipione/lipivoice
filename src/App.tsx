@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AgentsPage } from "@/features/agents/AgentsPage";
 import { CallsPage } from "@/features/calls/CallsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
+import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
 import { ToolsPage } from "@/features/tools/ToolsPage";
 import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
@@ -21,6 +22,8 @@ export function App() {
         <AgentsPage />
       ) : activePage === "web-voice" ? (
         <VoiceConsolePage />
+      ) : activePage === "phone" ? (
+        <PhoneNumbersPage />
       ) : activePage === "calls" ? (
         <CallsPage />
       ) : activePage === "tools" ? (

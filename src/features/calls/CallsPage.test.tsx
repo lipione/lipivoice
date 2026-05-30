@@ -42,7 +42,7 @@ describe("CallsPage", () => {
     await waitFor(() => expect(screen.getByText("runtime_not_configured")).toBeInTheDocument());
     expect(screen.getByText("call_1")).toBeInTheDocument();
     expect(screen.getByText("web")).toBeInTheDocument();
-    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
     expect(screen.getByText("12s")).toBeInTheDocument();
   });
 
@@ -212,6 +212,67 @@ describe("CallsPage", () => {
 
     expect(screen.queryByText("stale_event_payload")).not.toBeInTheDocument();
     expect(screen.getAllByText("connected").length).toBeGreaterThan(0);
+  });
+
+  it("ends an active call from the detail panel", async () => {
+    const user = userEvent.setup();
+    const activeCall = {
+      id: "call_phone_1",
+      status: "connected",
+      channel: "phone",
+      direction: "inbound",
+      agentId: "agent_reception",
+      phoneNumberId: "phone_demo_main",
+      startedAt: "2026-05-31T00:00:00.000Z",
+      endedAt: null,
+      durationSeconds: 0,
+      costEstimateUsd: 0,
+      recordingUrl: null,
+      failureReason: null,
+    };
+    const fetchSpy = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/api/calls/call_phone_1/end") && init?.method === "POST") {
+        return Response.json({
+          call: {
+            ...activeCall,
+            status: "disconnected",
+            endedAt: "2026-05-31T00:00:30.000Z",
+            durationSeconds: 30,
+          },
+          events: [
+            {
+              id: "event_end",
+              callId: "call_phone_1",
+              timestamp: "2026-05-31T00:00:30.000Z",
+              type: "status",
+              actor: "system",
+              severity: "info",
+              payload: { status: "disconnected" },
+            },
+          ],
+        });
+      }
+
+      if (url.endsWith("/api/calls/call_phone_1/events")) {
+        return Response.json([]);
+      }
+
+      return Response.json([activeCall]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<CallsPage />);
+
+    expect(await screen.findByText("inbound phone")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "End call" }));
+
+    await waitFor(() => expect(screen.getAllByText("disconnected").length).toBeGreaterThan(0));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/calls/call_phone_1/end",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("shows an empty state when there are no calls", async () => {

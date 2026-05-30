@@ -26,6 +26,8 @@ export type CallStatus =
   | "speaking"
   | "disconnected"
   | "failed";
+export type PhoneNumberProvider = "simulation" | "byo_sip" | "twilio" | "telnyx";
+export type PhoneNumberStatus = "active" | "pending" | "disabled";
 
 export interface Agent {
   id: string;
@@ -128,11 +130,25 @@ export interface ToolExecutionLog {
   };
 }
 
+export interface PhoneNumber {
+  id: string;
+  label: string;
+  number: string;
+  provider: PhoneNumberProvider;
+  status: PhoneNumberStatus;
+  agentId: string | null;
+  inboundEnabled: boolean;
+  outboundEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Call {
   id: string;
   channel: "web" | "phone" | "simulation";
   direction: "inbound" | "outbound";
   agentId: string;
+  phoneNumberId?: string | null;
   status: CallStatus;
   startedAt: string;
   endedAt: string | null;

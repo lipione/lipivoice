@@ -6,6 +6,7 @@ import {
   callSchema,
   modelAssetSchema,
   modelRuntimeSchema,
+  phoneNumberSchema,
   toolExecutionLogSchema,
   toolSchema,
   voiceSchema,
@@ -15,6 +16,7 @@ import type {
   Call,
   CallEvent,
   ModelRuntime,
+  PhoneNumber,
   Tool,
   ToolExecutionLog,
   Voice,
@@ -27,6 +29,7 @@ type TableName =
   | "model_assets"
   | "voices"
   | "tools"
+  | "phone_numbers"
   | "calls";
 
 type StoredRow = {
@@ -52,6 +55,11 @@ export interface Repositories {
     get(id: string): Tool | null;
     save(tool: Tool): Tool;
   };
+  phoneNumbers: {
+    list(): PhoneNumber[];
+    get(id: string): PhoneNumber | null;
+    save(phoneNumber: PhoneNumber): PhoneNumber;
+  };
   toolExecutions: {
     append(input: Omit<ToolExecutionLog, "id">): ToolExecutionLog;
     list(): ToolExecutionLog[];
@@ -60,7 +68,9 @@ export interface Repositories {
   calls: {
     list(): Call[];
     get(id: string): Call | null;
-    create(input: Pick<Call, "channel" | "direction" | "agentId" | "status" | "startedAt">): Call;
+    create(input: Pick<Call, "channel" | "direction" | "agentId" | "status" | "startedAt"> & {
+      phoneNumberId?: string | null;
+    }): Call;
     update(call: Call): Call;
   };
   callEvents: {
@@ -78,6 +88,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
   const modelAssets = createJsonRepository(db, "model_assets", modelAssetSchema.parse);
   const voices = createJsonRepository(db, "voices", voiceSchema.parse);
   const tools = createJsonRepository(db, "tools", toolSchema.parse);
+  const phoneNumbers = createJsonRepository(db, "phone_numbers", phoneNumberSchema.parse);
   const calls = createJsonRepository(db, "calls", callSchema.parse);
 
   return {
@@ -98,6 +109,11 @@ export function createRepositories(db: DatabaseConnection): Repositories {
       list: tools.list,
       get: tools.get,
       save: tools.save,
+    },
+    phoneNumbers: {
+      list: phoneNumbers.list,
+      get: phoneNumbers.get,
+      save: phoneNumbers.save,
     },
     toolExecutions: {
       append(input) {
@@ -132,6 +148,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
         const call: Call = {
           id: nanoid(),
           ...input,
+          phoneNumberId: input.phoneNumberId ?? null,
           endedAt: null,
           durationSeconds: 0,
           costEstimateUsd: 0,
@@ -174,6 +191,7 @@ export function createRepositories(db: DatabaseConnection): Repositories {
         seed.voices.forEach(voices.insertMissing);
         const seedWithTools = seed as ReturnType<typeof createDefaultWorkspace> & { tools?: Tool[] };
         seedWithTools.tools?.forEach(tools.insertMissing);
+        seed.phoneNumbers.forEach(phoneNumbers.insertMissing);
       });
 
       transaction();

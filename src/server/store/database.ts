@@ -43,6 +43,11 @@ function runMigrations(db: DatabaseConnection): void {
       data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS phone_numbers (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS calls (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
-import { agentSchema, toolSchema } from "@/domain/schemas";
+import { agentSchema, phoneNumberSchema, toolSchema } from "@/domain/schemas";
 import type { ConfiguredState, RuntimeAdapter } from "@/domain/types";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
@@ -134,6 +134,26 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.json(repositories.tools.save(result.data));
   });
 
+  app.get("/api/phone-numbers", (_request, response) => {
+    response.json(repositories.phoneNumbers.list());
+  });
+
+  app.post("/api/phone-numbers", (request, response) => {
+    const result = phoneNumberSchema.safeParse(request.body);
+
+    if (!result.success) {
+      response.status(400).json({ code: "invalid_phone_number" });
+      return;
+    }
+
+    if (result.data.agentId && !repositories.agents.get(result.data.agentId)) {
+      response.status(404).json({ code: "agent_not_found" });
+      return;
+    }
+
+    response.json(repositories.phoneNumbers.save(result.data));
+  });
+
   app.get("/api/tools/executions", (_request, response) => {
     response.json(repositories.toolExecutions.list());
   });
@@ -198,6 +218,94 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.json(repositories.calls.list());
   });
 
+  app.post("/api/calls/phone/start", (request, response) => {
+    const phoneNumberId = typeof request.body?.phoneNumberId === "string" ? request.body.phoneNumberId : "";
+    const direction = request.body?.direction === "outbound" ? "outbound" : "inbound";
+    const phoneNumber = repositories.phoneNumbers.get(phoneNumberId);
+
+    if (!phoneNumber) {
+      response.status(404).json({ code: "phone_number_not_found" });
+      return;
+    }
+
+    const directionEnabled = direction === "outbound" ? phoneNumber.outboundEnabled : phoneNumber.inboundEnabled;
+    if (phoneNumber.status !== "active" || !directionEnabled) {
+      response.status(409).json({ code: "phone_number_not_available" });
+      return;
+    }
+
+    const agent = phoneNumber.agentId ? repositories.agents.get(phoneNumber.agentId) : null;
+    if (!agent) {
+      response.status(409).json({ code: "phone_number_unassigned" });
+      return;
+    }
+
+    const result = repositories.transaction(() => {
+      const now = currentTimestamp(deps.now);
+      const call = repositories.calls.create({
+        channel: "phone",
+        direction,
+        agentId: agent.id,
+        phoneNumberId: phoneNumber.id,
+        status: "connected",
+        startedAt: now,
+      });
+      const event = repositories.callEvents.append({
+        callId: call.id,
+        timestamp: now,
+        type: "status",
+        actor: "system",
+        payload: {
+          status: "connected",
+          phoneNumber: phoneNumber.number,
+          phoneNumberId: phoneNumber.id,
+          agentId: agent.id,
+        },
+        severity: "info",
+      });
+
+      return { call, events: [event] };
+    });
+
+    response.status(201).json(result);
+  });
+
+  app.post("/api/calls/:id/end", (request, response) => {
+    const call = repositories.calls.get(request.params.id);
+
+    if (!call) {
+      response.status(404).json({ code: "call_not_found" });
+      return;
+    }
+
+    if (call.endedAt) {
+      response.json({ call, events: repositories.callEvents.listForCall(call.id) });
+      return;
+    }
+
+    const result = repositories.transaction(() => {
+      const now = currentTimestamp(deps.now);
+      const updatedCall = repositories.calls.update({
+        ...call,
+        status: "disconnected",
+        endedAt: now,
+        durationSeconds: durationSecondsBetween(call.startedAt, now),
+      });
+      const event = repositories.callEvents.append({
+        callId: call.id,
+        timestamp: now,
+        type: "status",
+        actor: "system",
+        payload: { status: "disconnected" },
+        severity: "info",
+      });
+
+      return { call: updatedCall, events: [event] };
+    });
+
+    response.json(result);
+  });
+
   app.get("/api/calls/:id/events", (request, response) => {
     const call = repositories.calls.get(request.params.id);
 
@@ -255,7 +363,7 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     }
 
     const result = repositories.transaction(() => {
-      const now = new Date().toISOString();
+      const now = currentTimestamp(deps.now);
       const call = repositories.calls.create({
         channel: "simulation",
         direction: "inbound",
@@ -346,6 +454,17 @@ function isMalformedJsonError(error: unknown): boolean {
 
 function currentTimestamp(now: (() => Date) | undefined) {
   return (now ? now() : new Date()).toISOString();
+}
+
+function durationSecondsBetween(startedAt: string, endedAt: string) {
+  const started = new Date(startedAt).getTime();
+  const ended = new Date(endedAt).getTime();
+
+  if (!Number.isFinite(started) || !Number.isFinite(ended)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((ended - started) / 1000));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

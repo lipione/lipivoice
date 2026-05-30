@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentSchema, modelRuntimeSchema, toolExecutionLogSchema, toolSchema } from "./schemas";
+import {
+  agentSchema,
+  modelRuntimeSchema,
+  phoneNumberSchema,
+  toolExecutionLogSchema,
+  toolSchema,
+} from "./schemas";
 
 describe("domain schemas", () => {
   it("accepts a complete local-model agent", () => {
@@ -85,5 +91,22 @@ describe("domain schemas", () => {
     });
 
     expect(log.toolId).toBe("tool_order_lookup");
+  });
+
+  it("accepts a routed phone number", () => {
+    const phoneNumber = phoneNumberSchema.parse({
+      id: "phone_main",
+      label: "Main line",
+      number: "+15551201001",
+      provider: "simulation",
+      status: "active",
+      agentId: "agent_reception",
+      inboundEnabled: true,
+      outboundEnabled: false,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+
+    expect(phoneNumber.agentId).toBe("agent_reception");
   });
 });

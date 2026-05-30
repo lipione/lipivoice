@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -54,14 +54,13 @@ describe("ToolsPage", () => {
 
     render(<ToolsPage />);
 
-    await user.type(await screen.findByLabelText("Name"), "CRM lookup");
-    await user.type(screen.getByLabelText("Description"), "Pull customer context.");
-    await user.clear(screen.getByLabelText("URL"));
-    await user.type(screen.getByLabelText("URL"), "https://example.com/customers");
-    await user.type(screen.getByLabelText("Parameter"), "customerId");
-    await user.selectOptions(screen.getByLabelText("Auth"), "header");
-    await user.type(screen.getByLabelText("Header name"), "authorization");
-    await user.type(screen.getByLabelText("Header value"), "Bearer secret");
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "CRM lookup" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Pull customer context." } });
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.com/customers" } });
+    fireEvent.change(screen.getByLabelText("Parameter"), { target: { value: "customerId" } });
+    fireEvent.change(screen.getByLabelText("Auth"), { target: { value: "header" } });
+    fireEvent.change(screen.getByLabelText("Header name"), { target: { value: "authorization" } });
+    fireEvent.change(screen.getByLabelText("Header value"), { target: { value: "Bearer secret" } });
     await user.click(screen.getByRole("button", { name: "Save tool" }));
 
     await waitFor(() => expect(screen.getByText("Tool saved")).toBeInTheDocument());
@@ -126,9 +125,7 @@ describe("ToolsPage", () => {
     expect(await screen.findByText("Execution logs")).toBeInTheDocument();
     expect(screen.getByText(/shipped/)).toBeInTheDocument();
     const testArguments = screen.getByLabelText("Test arguments");
-    await user.clear(testArguments);
-    await user.click(testArguments);
-    await user.paste("{\"orderId\":\"A124\"}");
+    fireEvent.change(testArguments, { target: { value: "{\"orderId\":\"A124\"}" } });
     await user.click(screen.getByRole("button", { name: "Run tool" }));
 
     await waitFor(() => expect(screen.getByText(/delivered/)).toBeInTheDocument());

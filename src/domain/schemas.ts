@@ -33,6 +33,8 @@ export const runtimeHealthStatusSchema = z.enum([
   "license_required",
   "failed",
 ]);
+export const phoneNumberProviderSchema = z.enum(["simulation", "byo_sip", "twilio", "telnyx"]);
+export const phoneNumberStatusSchema = z.enum(["active", "pending", "disabled"]);
 
 export const agentSchema = z.object({
   id: z.string().min(1),
@@ -148,11 +150,25 @@ export const toolExecutionLogSchema = z.object({
   }),
 });
 
+export const phoneNumberSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  number: z.string().regex(/^\+[1-9]\d{6,14}$/, "Invalid E.164 phone number"),
+  provider: phoneNumberProviderSchema,
+  status: phoneNumberStatusSchema,
+  agentId: z.string().min(1).nullable(),
+  inboundEnabled: z.boolean(),
+  outboundEnabled: z.boolean(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
 export const callSchema = z.object({
   id: z.string().min(1),
   channel: z.enum(["web", "phone", "simulation"]),
   direction: z.enum(["inbound", "outbound"]),
   agentId: z.string().min(1),
+  phoneNumberId: z.string().min(1).nullable().optional(),
   status: callStatusSchema,
   startedAt: isoDateSchema,
   endedAt: isoDateSchema.nullable(),
