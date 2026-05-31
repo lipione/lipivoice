@@ -28,6 +28,111 @@ describe("VoiceLabPage", () => {
     expect(screen.getByRole("button", { name: "Generate speech" })).toBeInTheDocument();
   });
 
+  it("shows the requested Nepali TTS providers and benchmarks one", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/voices" || url === "/api/voice-samples") {
+        return Response.json([]);
+      }
+
+      if (url === "/api/tts/providers") {
+        return Response.json([
+          {
+            id: "indic_parler_tts",
+            name: "Indic Parler TTS",
+            role: "best proven Nepali baseline",
+            access: "open",
+            configuredState: "not_configured",
+            healthStatus: "missing_model",
+            sourceUrl: "https://huggingface.co/ai4bharat/indic-parler-tts",
+            languageSupport: ["ne-NP"],
+            capabilities: ["Nepali baseline"],
+            hardwareHints: ["gpu"],
+            runtimeId: null,
+          },
+          {
+            id: "omnivoice",
+            name: "OmniVoice",
+            role: "experimental multilingual and cloning candidate",
+            access: "open",
+            configuredState: "not_configured",
+            healthStatus: "missing_model",
+            sourceUrl: "https://github.com/k2-fsa/OmniVoice",
+            languageSupport: ["ne-NP"],
+            capabilities: ["zero-shot cloning"],
+            hardwareHints: ["gpu"],
+            runtimeId: null,
+          },
+          {
+            id: "chatterbox_nepali",
+            name: "Chatterbox Nepali",
+            role: "Nepali-specific cloning candidate",
+            access: "gated",
+            configuredState: "not_configured",
+            healthStatus: "license_required",
+            sourceUrl: "https://huggingface.co/Imbatmann/chatterbox-nepali-tts",
+            languageSupport: ["ne-NP"],
+            capabilities: ["Nepali cloning"],
+            hardwareHints: ["gpu"],
+            runtimeId: null,
+          },
+          {
+            id: "coqui_piper_vits",
+            name: "Coqui VITS / Piper-VITS",
+            role: "stable custom Nepali voice path",
+            access: "open",
+            configuredState: "configured",
+            healthStatus: "healthy",
+            sourceUrl: "https://docs.coqui.ai/en/latest/models/vits.html",
+            languageSupport: ["ne-NP"],
+            capabilities: ["custom training"],
+            hardwareHints: ["cpu"],
+            runtimeId: "runtime_lipi_ml_tts",
+          },
+        ]);
+      }
+
+      if (url === "/api/tts/benchmark") {
+        expect(init?.body).toBe(JSON.stringify({
+          providerId: "indic_parler_tts",
+          text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।",
+        }));
+        return Response.json(
+          {
+            id: "bench_1",
+            providerId: "indic_parler_tts",
+            providerName: "Indic Parler TTS",
+            text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।",
+            status: "unavailable",
+            healthStatus: "missing_model",
+            code: "provider_not_installed",
+            audioBase64: null,
+            mimeType: null,
+            latencyMs: 0,
+            createdAt: "2026-05-31T00:00:00.000Z",
+          },
+          { status: 409 },
+        );
+      }
+
+      return Response.json({ code: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<VoiceLabPage />);
+
+    expect(await screen.findByText("Indic Parler TTS")).toBeInTheDocument();
+    expect(screen.getByText("OmniVoice")).toBeInTheDocument();
+    expect(screen.getByText("Chatterbox Nepali")).toBeInTheDocument();
+    expect(screen.getByText("Coqui VITS / Piper-VITS")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Benchmark Indic Parler TTS" }));
+
+    expect(await screen.findByText("provider_not_installed")).toBeInTheDocument();
+  });
+
   it("loads voices from the API and posts the selected voice to TTS", async () => {
     const user = userEvent.setup();
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -140,6 +245,8 @@ describe("VoiceLabPage", () => {
             ])
           : String(input) === "/api/voice-samples"
             ? Response.json([])
+            : String(input) === "/api/tts/providers"
+              ? Response.json([])
             : speech.promise,
       ),
     );

@@ -21,6 +21,10 @@ export const runtimeAdapterSchema = z.enum([
   "whisper_cpp",
   "faster_whisper",
   "piper",
+  "indic_parler",
+  "omnivoice",
+  "chatterbox_nepali",
+  "coqui_vits",
   "kokoro",
   "energy_vad",
 ]);

@@ -50,6 +50,13 @@ The remote preset seeds the workspace with:
 - `lipi-ml` faster-whisper large-v3 for STT.
 - `lipi-ml` Piper voices for English and Nepali TTS.
 
+Voice Lab also exposes a Nepali TTS provider benchmark catalog:
+
+- Indic Parler TTS as the Nepali baseline candidate.
+- OmniVoice as the experimental multilingual and cloning candidate.
+- Chatterbox Nepali as the gated Nepali-specific cloning candidate.
+- Coqui VITS / Piper-VITS as the stable custom-training path.
+
 On the remote server, build and run without installing host Node:
 
 ```sh

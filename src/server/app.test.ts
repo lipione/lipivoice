@@ -63,6 +63,105 @@ describe("server app", () => {
     );
   });
 
+  it("lists the Nepali TTS provider candidates with current readiness", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      runtimeHealth: {
+        piper: async () => ({ status: "healthy", reason: null }),
+      },
+    });
+
+    const response = await request(app).get("/api/tts/providers").expect(200);
+
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "indic_parler_tts",
+          name: "Indic Parler TTS",
+          role: "best proven Nepali baseline",
+          healthStatus: "missing_model",
+        }),
+        expect.objectContaining({
+          id: "omnivoice",
+          name: "OmniVoice",
+          role: "experimental multilingual and cloning candidate",
+          healthStatus: "missing_model",
+        }),
+        expect.objectContaining({
+          id: "chatterbox_nepali",
+          name: "Chatterbox Nepali",
+          access: "gated",
+          healthStatus: "license_required",
+        }),
+        expect.objectContaining({
+          id: "coqui_piper_vits",
+          name: "Coqui VITS / Piper-VITS",
+          healthStatus: "healthy",
+          runtimeId: "runtime_piper",
+        }),
+      ]),
+    );
+  });
+
+  it("benchmarks the available Piper-VITS provider through the configured TTS adapter", async () => {
+    const tts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+      })),
+    };
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      tts,
+      runtimeHealth: {
+        piper: tts.health,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const response = await request(app)
+      .post("/api/tts/benchmark")
+      .send({ providerId: "coqui_piper_vits", text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।" })
+      .expect(200);
+
+    expect(tts.synthesize).toHaveBeenCalledWith({
+      text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।",
+      voicePath: "voice_piper_amy",
+    });
+    expect(response.body).toEqual({
+      id: expect.any(String),
+      providerId: "coqui_piper_vits",
+      providerName: "Coqui VITS / Piper-VITS",
+      text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।",
+      status: "generated",
+      healthStatus: "healthy",
+      code: null,
+      audioBase64: Buffer.from("wav-data").toString("base64"),
+      mimeType: "audio/wav",
+      latencyMs: expect.any(Number),
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+  });
+
+  it("returns a benchmark readiness result when a provider is not installed", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const response = await request(app)
+      .post("/api/tts/benchmark")
+      .send({ providerId: "indic_parler_tts", text: "नमस्ते" })
+      .expect(409);
+
+    expect(response.body).toMatchObject({
+      providerId: "indic_parler_tts",
+      providerName: "Indic Parler TTS",
+      status: "unavailable",
+      healthStatus: "missing_model",
+      code: "provider_not_installed",
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+  });
+
   it("returns a local usage summary", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
     const agent = context.repositories.agents.list()[0];

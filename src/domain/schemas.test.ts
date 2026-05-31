@@ -75,6 +75,26 @@ describe("domain schemas", () => {
     expect(runtime.adapter).toBe("ollama");
   });
 
+  it("accepts planned open-source TTS provider adapters", () => {
+    for (const adapter of ["indic_parler", "omnivoice", "chatterbox_nepali", "coqui_vits"]) {
+      const runtime = modelRuntimeSchema.parse({
+        id: `runtime_${adapter}`,
+        kind: "tts",
+        adapter,
+        endpoint: "",
+        configuredState: "not_configured",
+        healthStatus: adapter === "chatterbox_nepali" ? "license_required" : "missing_model",
+        defaultModelId: `model_${adapter}`,
+        concurrencyLimit: 1,
+        hardwareHints: ["remote", "gpu"],
+        createdAt: "2026-05-31T00:00:00.000Z",
+        updatedAt: "2026-05-31T00:00:00.000Z",
+      });
+
+      expect(runtime.adapter).toBe(adapter);
+    }
+  });
+
   it("accepts a redacted tool execution log", () => {
     const log = toolExecutionLogSchema.parse({
       id: "tool_exec_123",

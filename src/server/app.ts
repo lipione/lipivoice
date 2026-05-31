@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
+import { nanoid } from "nanoid";
 import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
 import {
   agentSchema,
@@ -21,9 +22,12 @@ import type {
   EvalDefinition,
   EvalRun,
   RuntimeAdapter,
+  TtsBenchmarkResult,
+  TtsProvider,
   UsageSummary,
   WorkspaceSettings,
 } from "@/domain/types";
+import { listTtsProviders } from "@/domain/ttsProviders";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
@@ -505,6 +509,83 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
     response.json(repositories.callEvents.listForCall(call.id));
   });
 
+  app.get("/api/tts/providers", async (_request, response, next) => {
+    try {
+      response.json(await listTtsProviderStatus(repositories, deps.runtimeHealth));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/tts/benchmark", async (request, response, next) => {
+    try {
+      const providerId = stringField(request.body?.providerId);
+      const text = stringField(request.body?.text);
+
+      if (!providerId || !text) {
+        response.status(400).json({ code: "invalid_tts_benchmark_request" });
+        return;
+      }
+
+      const providers = await listTtsProviderStatus(repositories, deps.runtimeHealth);
+      const provider = providers.find((candidate) => candidate.id === providerId);
+
+      if (!provider) {
+        response.status(404).json({ code: "tts_provider_not_found" });
+        return;
+      }
+
+      if (provider.healthStatus !== "healthy") {
+        response
+          .status(409)
+          .json(createBenchmarkResult(provider, text, {
+            status: "unavailable",
+            code: codeForUnavailableProvider(provider.healthStatus),
+            now: deps.now,
+          }));
+        return;
+      }
+
+      if (provider.adapter !== "piper") {
+        response
+          .status(409)
+          .json(createBenchmarkResult(provider, text, {
+            status: "unavailable",
+            code: "provider_adapter_not_connected",
+            now: deps.now,
+          }));
+        return;
+      }
+
+      if (!deps.tts || !provider.voiceId) {
+        response
+          .status(409)
+          .json(createBenchmarkResult(provider, text, {
+            status: "unavailable",
+            code: "provider_voice_missing",
+            now: deps.now,
+          }));
+        return;
+      }
+
+      const startedAt = Date.now();
+      const synthesized = await deps.tts.synthesize({ text, voicePath: provider.voiceId });
+
+      response.json(
+        createBenchmarkResult(provider, text, {
+          status: "generated",
+          code: null,
+          now: deps.now,
+          audioBase64: synthesized.audioBase64,
+          mimeType: synthesized.mimeType,
+          latencyMs: Date.now() - startedAt,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/tts/generate", async (request, response, next) => {
     try {
       const text = typeof request.body?.text === "string" ? request.body.text.trim() : "";
@@ -710,6 +791,69 @@ async function listModelRuntimes(repositories: Repositories, runtimeHealth: Runt
       };
     }),
   );
+}
+
+async function listTtsProviderStatus(
+  repositories: Repositories,
+  runtimeHealth: RuntimeHealthChecks | undefined,
+): Promise<TtsProvider[]> {
+  const runtimes = repositories.runtimes.list();
+  const ttsAdapters = new Set(runtimes.filter((runtime) => runtime.kind === "tts").map((runtime) => runtime.adapter));
+  const overlayEntries = await Promise.all(
+    Object.entries(runtimeHealth ?? {})
+      .filter(([adapter]) => ttsAdapters.has(adapter as RuntimeAdapter))
+      .map(async ([adapter, checkHealth]) => {
+        const health = await checkHealth();
+        return [
+          adapter,
+          {
+            configuredState: configuredStateFromHealth(health),
+            healthStatus: health.status,
+          },
+        ] as const;
+      }),
+  );
+
+  return listTtsProviders({
+    runtimes,
+    voices: repositories.voices.list(),
+    runtimeOverlays: Object.fromEntries(overlayEntries),
+  });
+}
+
+function createBenchmarkResult(
+  provider: TtsProvider,
+  text: string,
+  options: {
+    status: TtsBenchmarkResult["status"];
+    code: string | null;
+    now?: () => Date;
+    audioBase64?: string;
+    mimeType?: string;
+    latencyMs?: number;
+  },
+): TtsBenchmarkResult {
+  return {
+    id: nanoid(),
+    providerId: provider.id,
+    providerName: provider.name,
+    text,
+    status: options.status,
+    healthStatus: provider.healthStatus,
+    code: options.code,
+    audioBase64: options.audioBase64 ?? null,
+    mimeType: options.mimeType ?? null,
+    latencyMs: Math.max(0, options.latencyMs ?? 0),
+    createdAt: currentTimestamp(options.now),
+  };
+}
+
+function codeForUnavailableProvider(status: TtsBenchmarkResult["healthStatus"]) {
+  if (status === "license_required") return "license_required";
+  if (status === "unavailable") return "provider_unavailable";
+  if (status === "failed") return "provider_failed";
+  if (status === "unknown") return "provider_not_checked";
+  return "provider_not_installed";
 }
 
 function isMalformedJsonError(error: unknown): boolean {

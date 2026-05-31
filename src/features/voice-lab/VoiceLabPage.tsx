@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AudioWaveform, History, ShieldCheck } from "lucide-react";
+import { AudioWaveform, FlaskConical, History, ShieldCheck } from "lucide-react";
 
 import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { ConsentRecord, Voice, VoiceSample } from "@/domain/types";
+import type { ConsentRecord, RuntimeHealthStatus, TtsBenchmarkResult, TtsProvider, Voice, VoiceSample } from "@/domain/types";
 
 interface TtsResponse {
   audioBase64: string;
@@ -28,6 +28,10 @@ export function VoiceLabPage() {
   const [voiceId, setVoiceId] = useState("");
   const [audio, setAudio] = useState<GeneratedAudio | null>(null);
   const [samples, setSamples] = useState<GeneratedAudio[]>([]);
+  const [providers, setProviders] = useState<TtsProvider[]>([]);
+  const [benchmarkText, setBenchmarkText] = useState("नमस्ते, लिपिभ्वाइस परीक्षण हो।");
+  const [benchmarkResult, setBenchmarkResult] = useState<TtsBenchmarkResult | null>(null);
+  const [benchmarkingProviderId, setBenchmarkingProviderId] = useState<string | null>(null);
   const [cloneForm, setCloneForm] = useState({
     voiceName: "",
     language: "en-US",
@@ -68,6 +72,17 @@ export function VoiceLabPage() {
       .catch(() => {
         if (isCurrent) {
           setSamples([]);
+        }
+      });
+    void getJson<unknown>("/api/tts/providers")
+      .then((nextProviders) => {
+        if (isCurrent) {
+          setProviders(Array.isArray(nextProviders) ? nextProviders.filter(isTtsProvider) : []);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setProviders([]);
         }
       });
 
@@ -145,6 +160,46 @@ export function VoiceLabPage() {
     }
   }
 
+  async function benchmarkProvider(providerId: string) {
+    const submittedText = benchmarkText.trim();
+
+    if (!submittedText) return;
+
+    setBenchmarkingProviderId(providerId);
+    setBenchmarkResult(null);
+
+    try {
+      const response = await fetch("/api/tts/benchmark", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ providerId, text: submittedText }),
+      });
+      const body = (await response.json()) as TtsBenchmarkResult | { code?: string };
+
+      if (!response.ok && !isTtsBenchmarkResult(body)) {
+        throw new Error("code" in body && body.code ? body.code : `Request failed: ${response.status}`);
+      }
+
+      setBenchmarkResult(isTtsBenchmarkResult(body) ? body : null);
+    } catch (benchmarkError) {
+      setBenchmarkResult({
+        id: `benchmark_failed_${Date.now()}`,
+        providerId,
+        providerName: providers.find((provider) => provider.id === providerId)?.name ?? providerId,
+        text: submittedText,
+        status: "unavailable",
+        healthStatus: "failed",
+        code: benchmarkError instanceof Error ? benchmarkError.message : "benchmark_failed",
+        audioBase64: null,
+        mimeType: null,
+        latencyMs: 0,
+        createdAt: new Date().toISOString(),
+      });
+    } finally {
+      setBenchmarkingProviderId(null);
+    }
+  }
+
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-4" aria-label="Voice Lab">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -157,6 +212,92 @@ export function VoiceLabPage() {
           <Badge variant="secondary">{samples.length} samples</Badge>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle>Nepali TTS providers</CardTitle>
+            <CardDescription>Open-source provider readiness and benchmark path</CardDescription>
+          </div>
+          <FlaskConical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="benchmark-text">Benchmark text</Label>
+            <Textarea
+              id="benchmark-text"
+              className="min-h-20"
+              value={benchmarkText}
+              onChange={(event) => setBenchmarkText(event.target.value)}
+            />
+          </div>
+          {providers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No TTS providers reported.</p>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {providers.map((provider) => (
+                <div key={provider.id} className="grid gap-3 rounded-md border border-border p-3">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{provider.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{provider.role}</p>
+                    </div>
+                    <Badge variant={provider.healthStatus === "healthy" ? "success" : provider.healthStatus === "license_required" ? "warning" : "secondary"}>
+                      {formatHealthStatus(provider.healthStatus)}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{provider.access.replace("_", " ")}</Badge>
+                    <Badge variant="outline">{provider.license}</Badge>
+                    <Badge variant="outline">{provider.languageSupport.slice(0, 2).join(", ")}</Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <a
+                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                      href={provider.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Source
+                    </a>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Benchmark ${provider.name}`}
+                      onClick={() => void benchmarkProvider(provider.id)}
+                      disabled={benchmarkingProviderId !== null || benchmarkText.trim() === ""}
+                    >
+                      <FlaskConical aria-hidden="true" />
+                      {benchmarkingProviderId === provider.id ? "Testing..." : "Benchmark"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {benchmarkResult ? (
+            <div className="grid gap-2 rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-medium">{benchmarkResult.providerName}</p>
+                <Badge variant={benchmarkResult.status === "generated" ? "success" : "warning"}>
+                  {benchmarkResult.code ?? benchmarkResult.status}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {benchmarkResult.healthStatus} · {benchmarkResult.latencyMs} ms
+              </p>
+              {benchmarkResult.audioBase64 && benchmarkResult.mimeType ? (
+                <audio
+                  aria-label={`Benchmark audio ${benchmarkResult.id}`}
+                  controls
+                  src={`data:${benchmarkResult.mimeType};base64,${benchmarkResult.audioBase64}`}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="grid gap-4">
@@ -363,4 +504,38 @@ function isVoiceSample(value: unknown): value is GeneratedAudio {
     "mimeType" in value &&
     "createdAt" in value
   );
+}
+
+function isTtsProvider(value: unknown): value is TtsProvider {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    "name" in value &&
+    "role" in value &&
+    "access" in value &&
+    "healthStatus" in value &&
+    "sourceUrl" in value &&
+    "languageSupport" in value &&
+    "capabilities" in value &&
+    "hardwareHints" in value
+  );
+}
+
+function isTtsBenchmarkResult(value: unknown): value is TtsBenchmarkResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    "providerId" in value &&
+    "providerName" in value &&
+    "status" in value &&
+    "healthStatus" in value &&
+    "code" in value &&
+    "latencyMs" in value
+  );
+}
+
+function formatHealthStatus(status: RuntimeHealthStatus) {
+  return status.replace("_", " ");
 }

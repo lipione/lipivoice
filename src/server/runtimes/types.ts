@@ -1,5 +1,5 @@
 export interface RuntimeHealthResult {
-  status: "healthy" | "unavailable" | "missing_model" | "failed";
+  status: "healthy" | "unavailable" | "missing_model" | "license_required" | "failed";
   reason: string | null;
   latencyMs?: number;
 }

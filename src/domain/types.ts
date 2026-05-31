@@ -5,6 +5,10 @@ export type RuntimeAdapter =
   | "whisper_cpp"
   | "faster_whisper"
   | "piper"
+  | "indic_parler"
+  | "omnivoice"
+  | "chatterbox_nepali"
+  | "coqui_vits"
   | "kokoro"
   | "energy_vad";
 export type RuntimeHealthStatus =
@@ -99,6 +103,39 @@ export interface VoiceSample {
   text: string;
   audioBase64: string;
   mimeType: string;
+  createdAt: string;
+}
+
+export type TtsProviderAccess = "open" | "gated" | "custom_training";
+
+export interface TtsProvider {
+  id: string;
+  name: string;
+  role: string;
+  access: TtsProviderAccess;
+  adapter: RuntimeAdapter;
+  runtimeId: string | null;
+  voiceId: string | null;
+  configuredState: ConfiguredState;
+  healthStatus: RuntimeHealthStatus;
+  sourceUrl: string;
+  license: string;
+  languageSupport: string[];
+  capabilities: string[];
+  hardwareHints: string[];
+}
+
+export interface TtsBenchmarkResult {
+  id: string;
+  providerId: string;
+  providerName: string;
+  text: string;
+  status: "generated" | "unavailable";
+  healthStatus: RuntimeHealthStatus;
+  code: string | null;
+  audioBase64: string | null;
+  mimeType: string | null;
+  latencyMs: number;
   createdAt: string;
 }
 
