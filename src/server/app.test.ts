@@ -862,6 +862,26 @@ describe("server app", () => {
     });
   });
 
+  it("returns a structured TTS generation error when synthesis fails", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      ttsAdapters: {
+        google_tts: {
+          health: async () => ({ status: "healthy", reason: null }),
+          synthesize: async () => {
+            throw new Error("permission denied");
+          },
+        },
+      },
+    });
+
+    const response = await request(context.app)
+      .post("/api/tts/generate")
+      .send({ text: "नमस्ते", voiceId: "voice_google_tts_ne" })
+      .expect(502);
+
+    expect(response.body).toEqual({ code: "tts_synthesis_failed" });
+  });
+
   it("stores generated voice samples", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       now: () => new Date("2026-05-31T00:00:00.000Z"),

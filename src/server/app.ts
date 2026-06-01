@@ -661,7 +661,12 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
-      const synthesized = await ttsAdapter.synthesize({ text, voicePath: voiceId });
+      const synthesized = await ttsAdapter.synthesize({ text, voicePath: voiceId }).catch(() => null);
+      if (!synthesized) {
+        response.status(502).json({ code: "tts_synthesis_failed" });
+        return;
+      }
+
       const sample = repositories.voiceSamples.append({
         voiceId: voice.id,
         voiceName: voice.name,
