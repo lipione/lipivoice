@@ -103,7 +103,7 @@ Voice Lab exposes this Nepali TTS provider benchmark catalog:
 
 | Provider | Role | Current remote state |
 | --- | --- | --- |
-| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Configured for Gemini-TTS Preview with `ne-NP`, model `gemini-3.1-flash-tts-preview`, and Nepali voice env `GOOGLE_TTS_VOICE_NE=Kore`. The service account also needs Cloud Text-to-Speech enabled, billing enabled, and `aiplatform.endpoints.predict` permission. |
+| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Configured for Gemini-TTS Preview with `ne-NP`, model `gemini-3.1-flash-tts-preview`, and Nepali voice env `GOOGLE_TTS_VOICE_NE=Kore`. Remote health is `healthy`, but benchmark currently returns `provider_synthesis_failed` because Google denies `aiplatform.endpoints.predict`; grant the service account `roles/aiplatform.user` or an equivalent custom role. |
 | Indic Parler TTS | Best proven Nepali baseline candidate | Catalog entry is gated by Hugging Face access or token acceptance and reports `license_required` until that is resolved. |
 | OmniVoice | Experimental multilingual and cloning candidate | Model files are downloaded and catalog health is `healthy`, but benchmark returns `provider_adapter_not_connected` until an inference runner is wired. |
 | Chatterbox Nepali | Nepali-specific cloning candidate | Hugging Face gated model access is still required, so it reports `license_required`. |
@@ -131,7 +131,7 @@ curl -s -X POST http://127.0.0.1:8787/api/tts/benchmark \
 Expected provider behavior on the current remote server:
 
 - `coqui_piper_vits` can generate audio through `lipi-ml` / Piper.
-- `google_cloud_tts` is configured for Gemini-TTS Preview with `ne-NP` and `Kore`; synthesis depends on the service account permissions and regional availability.
+- `google_cloud_tts` is configured for Gemini-TTS Preview with `ne-NP` and `Kore`; current remote synthesis is blocked by missing `aiplatform.endpoints.predict` permission.
 - `omnivoice` is downloaded but does not synthesize until its adapter is implemented.
 - `indic_parler_tts` and `chatterbox_nepali` require gated model access or accepted license terms.
 

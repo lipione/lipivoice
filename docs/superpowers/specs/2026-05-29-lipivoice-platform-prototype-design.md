@@ -65,7 +65,7 @@ Current Nepali TTS provider readiness:
 
 | Provider | Current status | Next implementation work |
 | --- | --- | --- |
-| Google Cloud TTS | Configured for Gemini-TTS Preview with `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`, `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`. | Verify the service account has Cloud Text-to-Speech enabled, billing enabled, and `aiplatform.endpoints.predict`; keep credentials server-side only. |
+| Google Cloud TTS | Configured for Gemini-TTS Preview with `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`, `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`; remote health is `healthy`, but synthesis currently returns `provider_synthesis_failed`. | Grant the service account `aiplatform.endpoints.predict`, typically through `roles/aiplatform.user`, and keep credentials server-side only. |
 | Indic Parler TTS | `license_required` because gated Hugging Face access or token acceptance is still unresolved. | Add accepted HF token, download model files, then wire an inference adapter. |
 | OmniVoice | Catalog health is `healthy`; benchmark returns `provider_adapter_not_connected`. | Implement the OmniVoice inference runner and expose generated audio through the benchmark path. |
 | Chatterbox Nepali | `license_required` because the Nepali model is gated. | Accept license terms, download with HF token, then wire cloning-capable inference. |
