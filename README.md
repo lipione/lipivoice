@@ -56,6 +56,8 @@ export LIPIVOICE_TTS_MODEL_MANIFEST=/data/models/lipivoice/tts/manifest.json
 export GOOGLE_TTS_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a6477dd41434.json
 export GOOGLE_STT_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
 export GOOGLE_TTS_LANGUAGE_CODE=ne-NP
+export GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview
+export GOOGLE_TTS_VOICE_NE=Kore
 export GOOGLE_TTS_VOICE_NAME=
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
@@ -91,12 +93,17 @@ The JSON files must stay out of Git. The compose file mounts that directory read
 - `GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
 - `GOOGLE_TTS_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
 - `GOOGLE_STT_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json`
+- `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`
+- `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`
+- `GOOGLE_TTS_VOICE_NE=Kore`
+
+For Google language codes, use `ne` or `ne-NP` for Nepali. The backend normalizes `ne` to `ne-NP`; it does not treat `np` as Nepali.
 
 Voice Lab exposes this Nepali TTS provider benchmark catalog:
 
 | Provider | Role | Current remote state |
 | --- | --- | --- |
-| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Credentials are mounted and readable, but `ne-NP` currently reports `missing_model` / `voice_not_available`, so benchmark does not generate audio yet. Try an explicit `GOOGLE_TTS_VOICE_NAME` only after confirming Google lists a supported Nepali voice. |
+| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Configured for Gemini-TTS Preview with `ne-NP`, model `gemini-3.1-flash-tts-preview`, and Nepali voice env `GOOGLE_TTS_VOICE_NE=Kore`. The service account also needs Cloud Text-to-Speech enabled, billing enabled, and `aiplatform.endpoints.predict` permission. |
 | Indic Parler TTS | Best proven Nepali baseline candidate | Catalog entry is gated by Hugging Face access or token acceptance and reports `license_required` until that is resolved. |
 | OmniVoice | Experimental multilingual and cloning candidate | Model files are downloaded and catalog health is `healthy`, but benchmark returns `provider_adapter_not_connected` until an inference runner is wired. |
 | Chatterbox Nepali | Nepali-specific cloning candidate | Hugging Face gated model access is still required, so it reports `license_required`. |
@@ -124,7 +131,7 @@ curl -s -X POST http://127.0.0.1:8787/api/tts/benchmark \
 Expected provider behavior on the current remote server:
 
 - `coqui_piper_vits` can generate audio through `lipi-ml` / Piper.
-- `google_cloud_tts` is configured but unavailable for the configured `ne-NP` voice.
+- `google_cloud_tts` is configured for Gemini-TTS Preview with `ne-NP` and `Kore`; synthesis depends on the service account permissions and regional availability.
 - `omnivoice` is downloaded but does not synthesize until its adapter is implemented.
 - `indic_parler_tts` and `chatterbox_nepali` require gated model access or accepted license terms.
 

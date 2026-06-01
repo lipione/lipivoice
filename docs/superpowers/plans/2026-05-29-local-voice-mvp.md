@@ -37,7 +37,7 @@ Current remote provider status:
 
 | Provider | Status | Notes |
 | --- | --- | --- |
-| Google Cloud TTS | Configured but unavailable for current voice | Credentials are mounted, but `ne-NP` reports `missing_model` / `voice_not_available`; benchmark does not generate audio yet. |
+| Google Cloud TTS | Configured for Gemini-TTS Preview | Uses `ne-NP`, `gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`; synthesis depends on Cloud Text-to-Speech, billing, and `aiplatform.endpoints.predict` permission. |
 | Indic Parler TTS | `license_required` | Requires Hugging Face token or accepted terms before model files can be used. |
 | OmniVoice | Catalog `healthy`, benchmark unavailable | Model files are present, but inference is not connected, so benchmark returns `provider_adapter_not_connected`. |
 | Chatterbox Nepali | `license_required` | Nepali-specific model is gated and still needs accepted access. |
@@ -47,7 +47,7 @@ Remaining follow-up work:
 
 - Implement real inference adapters for OmniVoice and Indic Parler TTS.
 - Unlock and wire Chatterbox Nepali after gated model access is accepted.
-- Confirm whether Google Cloud TTS exposes a usable Nepali voice for this project, or keep it as a configured-but-unavailable fallback.
+- Verify Google Cloud TTS synthesis on the remote server with the Gemini-TTS model and `Kore` voice.
 - Train or package a stable custom Nepali Coqui/Piper voice for production-quality output.
 - Add Google STT only if needed; credentials can be mounted, but no Google STT adapter exists now.
 - Expose richer provider failure reasons in the Voice Lab UI if operator debugging needs more detail than the current status/code.

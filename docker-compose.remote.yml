@@ -19,6 +19,8 @@ services:
       GOOGLE_TTS_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a6477dd41434.json
       GOOGLE_STT_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
       GOOGLE_TTS_LANGUAGE_CODE: ${GOOGLE_TTS_LANGUAGE_CODE:-ne-NP}
+      GOOGLE_TTS_MODEL: ${GOOGLE_TTS_MODEL:-gemini-3.1-flash-tts-preview}
+      GOOGLE_TTS_VOICE_NE: ${GOOGLE_TTS_VOICE_NE:-Kore}
       GOOGLE_TTS_VOICE_NAME: ${GOOGLE_TTS_VOICE_NAME:-}
     volumes:
       - ./data:/app/data

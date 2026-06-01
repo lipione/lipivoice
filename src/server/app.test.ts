@@ -213,6 +213,39 @@ describe("server app", () => {
     });
   });
 
+  it("returns a structured benchmark result when provider synthesis fails", async () => {
+    const googleTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => {
+        throw new Error("permission denied");
+      }),
+    };
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      ttsAdapters: {
+        google_tts: googleTts,
+      },
+      runtimeHealth: {
+        google_tts: googleTts.health,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const response = await request(app)
+      .post("/api/tts/benchmark")
+      .send({ providerId: "google_cloud_tts", text: "नमस्ते" })
+      .expect(502);
+
+    expect(response.body).toMatchObject({
+      providerId: "google_cloud_tts",
+      status: "unavailable",
+      healthStatus: "healthy",
+      code: "provider_synthesis_failed",
+      audioBase64: null,
+      mimeType: null,
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+  });
+
   it("returns a local usage summary", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
     const agent = context.repositories.agents.list()[0];
@@ -821,7 +854,7 @@ describe("server app", () => {
 
     expect(response.body).toMatchObject({
       voiceId: "voice_google_tts_ne",
-      voiceName: "Google Cloud Nepali",
+      voiceName: "Google Gemini Nepali",
       text: "नमस्ते",
       audioBase64: Buffer.from("नमस्ते").toString("base64"),
       mimeType: "audio/mpeg",

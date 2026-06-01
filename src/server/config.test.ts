@@ -18,8 +18,9 @@ describe("server config", () => {
         VLLM_MODEL: "gemma-4",
         LIPI_ML_BASE_URL: "http://127.0.0.1:5001",
         GOOGLE_TTS_CREDENTIALS_PATH: "/run/secrets/google/tts.json",
-        GOOGLE_TTS_LANGUAGE_CODE: "ne-NP",
-        GOOGLE_TTS_VOICE_NAME: "ne-NP-Standard-A",
+        GOOGLE_TTS_LANGUAGE_CODE: "ne",
+        GOOGLE_TTS_MODEL: "gemini-3.1-flash-tts-preview",
+        GOOGLE_TTS_VOICE_NE: "Kore",
       }),
     ).toMatchObject({
       runtimePreset: "remote",
@@ -28,7 +29,12 @@ describe("server config", () => {
       lipiMlBaseUrl: "http://127.0.0.1:5001",
       googleTtsCredentialsPath: "/run/secrets/google/tts.json",
       googleTtsLanguageCode: "ne-NP",
-      googleTtsVoiceName: "ne-NP-Standard-A",
+      googleTtsModel: "gemini-3.1-flash-tts-preview",
+      googleTtsVoiceName: "Kore",
     });
+  });
+
+  it("does not treat np as a Nepali language code", () => {
+    expect(loadServerConfig({ GOOGLE_TTS_LANGUAGE_CODE: "np" }).googleTtsLanguageCode).toBe("np");
   });
 });

@@ -10,6 +10,7 @@ export interface ServerConfig {
   ttsModelManifestPath: string;
   googleTtsCredentialsPath: string;
   googleTtsLanguageCode: string;
+  googleTtsModel: string;
   googleTtsVoiceName: string;
   whisperCppBin: string;
   whisperModelPath: string;
@@ -29,8 +30,9 @@ export function loadServerConfig(env = process.env): ServerConfig {
     lipiMlBaseUrl: env.LIPI_ML_BASE_URL ?? "",
     ttsModelManifestPath: env.LIPIVOICE_TTS_MODEL_MANIFEST ?? "",
     googleTtsCredentialsPath: env.GOOGLE_TTS_CREDENTIALS_PATH ?? env.GOOGLE_APPLICATION_CREDENTIALS ?? "",
-    googleTtsLanguageCode: env.GOOGLE_TTS_LANGUAGE_CODE ?? "ne-NP",
-    googleTtsVoiceName: env.GOOGLE_TTS_VOICE_NAME ?? "",
+    googleTtsLanguageCode: normalizeGoogleLanguageCode(env.GOOGLE_TTS_LANGUAGE_CODE ?? "ne-NP"),
+    googleTtsModel: env.GOOGLE_TTS_MODEL ?? "",
+    googleTtsVoiceName: resolveGoogleTtsVoiceName(env),
     whisperCppBin: env.WHISPER_CPP_BIN ?? "",
     whisperModelPath: env.WHISPER_MODEL_PATH ?? "",
     piperBin: env.PIPER_BIN ?? "",
@@ -46,4 +48,20 @@ function parsePort(value: string | undefined): number {
 
 function parseRuntimePreset(value: string | undefined): "local" | "remote" {
   return value === "remote" ? "remote" : "local";
+}
+
+function normalizeGoogleLanguageCode(value: string): string {
+  const normalized = value.trim();
+
+  return normalized.toLowerCase() === "ne" ? "ne-NP" : normalized;
+}
+
+function resolveGoogleTtsVoiceName(env: NodeJS.ProcessEnv): string {
+  const languageCode = normalizeGoogleLanguageCode(env.GOOGLE_TTS_LANGUAGE_CODE ?? "ne-NP").toLowerCase();
+
+  if (languageCode.startsWith("ne") && env.GOOGLE_TTS_VOICE_NE) {
+    return env.GOOGLE_TTS_VOICE_NE;
+  }
+
+  return env.GOOGLE_TTS_VOICE_NAME ?? "";
 }

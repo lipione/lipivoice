@@ -48,6 +48,7 @@ Public references reviewed:
 - https://github.com/hexgrad/kokoro
 - https://huggingface.co/hexgrad/Kokoro-82M
 - https://docs.coqui.ai/en/stable/models/xtts.html
+- https://docs.cloud.google.com/text-to-speech/docs/gemini-tts
 
 ## Current Implementation Status - 2026-06-01
 
@@ -64,7 +65,7 @@ Current Nepali TTS provider readiness:
 
 | Provider | Current status | Next implementation work |
 | --- | --- | --- |
-| Google Cloud TTS | Credentials are configured, but the configured `ne-NP` language reports `missing_model` / `voice_not_available`; benchmark does not generate audio. | Confirm a supported Nepali Google voice or switch language/voice config; keep credentials server-side only. |
+| Google Cloud TTS | Configured for Gemini-TTS Preview with `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`, `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`. | Verify the service account has Cloud Text-to-Speech enabled, billing enabled, and `aiplatform.endpoints.predict`; keep credentials server-side only. |
 | Indic Parler TTS | `license_required` because gated Hugging Face access or token acceptance is still unresolved. | Add accepted HF token, download model files, then wire an inference adapter. |
 | OmniVoice | Catalog health is `healthy`; benchmark returns `provider_adapter_not_connected`. | Implement the OmniVoice inference runner and expose generated audio through the benchmark path. |
 | Chatterbox Nepali | `license_required` because the Nepali model is gated. | Accept license terms, download with HF token, then wire cloning-capable inference. |
@@ -125,7 +126,7 @@ Model runtime adapters:
 - `runtime/vad/sileroAdapter`: local voice activity detection.
 - `runtime/tts/piperAdapter`: fast local neural TTS.
 - `runtime/tts/lipiMlAdapter`: remote `lipi-ml` Piper TTS integration for English and Nepali voices.
-- `runtime/tts/googleCloudTtsAdapter`: optional Google Cloud TTS fallback using service-account credentials and returning MP3 audio.
+- `runtime/tts/googleCloudTtsAdapter`: optional Google Cloud TTS fallback using service-account credentials, Gemini-TTS `model_name`, Nepali `ne-NP`, and MP3 output.
 - `runtime/tts/modelCatalog`: manifest-backed health and license status for downloaded TTS candidates such as Indic Parler, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
 - `runtime/tts/kokoroAdapter`: open-weight local TTS with Apache-licensed weights.
 - `runtime/tts/coquiAdapter`: optional local multilingual TTS and voice-cloning experiments, subject to model license review.
@@ -280,6 +281,7 @@ All failures should write call or system events with structured reasons. User-fa
 - The default AI path uses local/open-source runtimes and does not require closed AI API keys.
 - Optional API keys or service-account files for telephony, Google Cloud TTS, or future external providers stay server-side. Browser clients only receive short-lived LipiVoice session credentials.
 - Google service-account JSON files are mounted read-only in deployment and must never be committed to Git.
+- Google Nepali TTS must use `ne` or `ne-NP`; `np` is not a Nepali language code. The backend normalizes `ne` to `ne-NP`.
 - Model assets store visible license metadata, and the UI must not hide license constraints.
 - Hugging Face gated model access must be represented as `license_required` until terms are accepted and tokens are configured.
 - Voice cloning requires consent metadata before a clone record can be created.

@@ -87,6 +87,7 @@ export function createApp(config: ServerConfig): AppContext {
     const googleTts = new GoogleCloudTtsAdapter({
       credentialsPath: config.googleTtsCredentialsPath,
       languageCode: config.googleTtsLanguageCode,
+      modelName: config.googleTtsModel,
       voiceName: config.googleTtsVoiceName,
     });
 
@@ -114,6 +115,7 @@ export function createApp(config: ServerConfig): AppContext {
   const googleTts = new GoogleCloudTtsAdapter({
     credentialsPath: config.googleTtsCredentialsPath,
     languageCode: config.googleTtsLanguageCode,
+    modelName: config.googleTtsModel,
     voiceName: config.googleTtsVoiceName,
   });
 
@@ -598,7 +600,19 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
       }
 
       const startedAt = Date.now();
-      const synthesized = await ttsAdapter.synthesize({ text, voicePath: provider.voiceId });
+      const synthesized = await ttsAdapter.synthesize({ text, voicePath: provider.voiceId }).catch(() => null);
+
+      if (!synthesized) {
+        response
+          .status(502)
+          .json(createBenchmarkResult(provider, text, {
+            status: "unavailable",
+            code: "provider_synthesis_failed",
+            now: deps.now,
+            latencyMs: Date.now() - startedAt,
+          }));
+        return;
+      }
 
       response.json(
         createBenchmarkResult(provider, text, {

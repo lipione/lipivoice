@@ -5,13 +5,16 @@ import type { RuntimeHealthResult, TtsAdapter } from "./types";
 interface GoogleCloudTtsOptions {
   credentialsPath: string;
   languageCode?: string;
+  modelName?: string;
   voiceName?: string;
+  prompt?: string;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
 
 interface GoogleServiceAccount {
   type?: string;
+  project_id?: string;
   client_email?: string;
   private_key?: string;
   token_uri?: string;
@@ -33,7 +36,9 @@ interface SynthesizeResponse {
 export class GoogleCloudTtsAdapter implements TtsAdapter {
   private readonly credentialsPath: string;
   private readonly languageCode: string;
+  private readonly modelName: string;
   private readonly voiceName: string;
+  private readonly prompt: string;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private token: { accessToken: string; expiresAtMs: number } | null = null;
@@ -41,7 +46,9 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
   constructor(options: GoogleCloudTtsOptions) {
     this.credentialsPath = options.credentialsPath;
     this.languageCode = options.languageCode ?? "ne-NP";
+    this.modelName = options.modelName ?? "";
     this.voiceName = options.voiceName ?? "";
+    this.prompt = options.prompt ?? "Say the following.";
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
   }
@@ -54,6 +61,12 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
 
     try {
       const token = await this.getAccessToken(credentials);
+      if (this.modelName) {
+        return this.voiceName
+          ? { status: "healthy", reason: null }
+          : { status: "missing_model", reason: "google_tts_voice_not_configured" };
+      }
+
       const response = await this.fetchImpl(
         `https://texttospeech.googleapis.com/v1/voices?languageCode=${encodeURIComponent(this.languageCode)}`,
         { headers: { authorization: `Bearer ${token}` } },
@@ -88,13 +101,15 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
+        ...googleUserProjectHeader(credentials),
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        input: { text: input.text },
+        input: this.modelName ? { prompt: this.prompt, text: input.text } : { text: input.text },
         voice: {
           languageCode: this.languageCode,
           ...(this.voiceName ? { name: this.voiceName } : {}),
+          ...(this.modelName ? { model_name: this.modelName } : {}),
         },
         audioConfig: { audioEncoding: "MP3" },
       }),
@@ -190,4 +205,8 @@ function signJwt(header: object, payload: object, privateKey: string): string {
 
 function base64UrlJson(value: object): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function googleUserProjectHeader(credentials: GoogleServiceAccount): Record<string, string> {
+  return credentials.project_id ? { "x-goog-user-project": credentials.project_id } : {};
 }
