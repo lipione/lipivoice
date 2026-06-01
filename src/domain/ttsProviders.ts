@@ -29,6 +29,19 @@ interface RuntimeOverlay {
 
 const providerDefinitions: ProviderDefinition[] = [
   {
+    id: "google_cloud_tts",
+    name: "Google Cloud TTS",
+    role: "cloud fallback for Nepali TTS experiments",
+    access: "cloud",
+    adapter: "google_tts",
+    sourceUrl: "https://cloud.google.com/text-to-speech/docs",
+    license: "Google Cloud service terms",
+    languageSupport: ["ne-NP", "multilingual"],
+    capabilities: ["managed TTS", "service-account auth", "cloud fallback"],
+    hardwareHints: ["cloud", "service-account"],
+    fallbackHealthStatus: "missing_model",
+  },
+  {
     id: "indic_parler_tts",
     name: "Indic Parler TTS",
     role: "best proven Nepali baseline",

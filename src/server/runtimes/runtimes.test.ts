@@ -1,8 +1,10 @@
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectSpeechTurn } from "./energyVad";
+import { GoogleCloudTtsAdapter } from "./googleCloudTts";
 import { mapRuntimeHealth } from "./health";
 import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./lipiMl";
 import { OllamaAdapter } from "./ollama";
@@ -218,6 +220,58 @@ describe("runtime adapters", () => {
 
     expect(requests[0]?.url).toBe("http://lipi-ml.test/tts");
     expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ text: "Namaste", language: "ne" });
+  });
+
+  it("authenticates Google Cloud TTS service accounts and returns MP3 audio", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-google-tts-test-"));
+    const credentialsPath = join(tempDir, "service-account.json");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        client_email: "lipivoice@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+    );
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new GoogleCloudTtsAdapter({
+      credentialsPath,
+      languageCode: "ne-NP",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "access-token", expires_in: 3600 });
+        }
+        if (String(url).startsWith("https://texttospeech.googleapis.com/v1/voices")) {
+          return Response.json({ voices: [{ name: "ne-NP-Standard-A", languageCodes: ["ne-NP"] }] });
+        }
+        if (String(url) === "https://texttospeech.googleapis.com/v1/text:synthesize") {
+          return Response.json({ audioContent: Buffer.from("mp3-data").toString("base64") });
+        }
+        return Response.json({ error: "unexpected" }, { status: 404 });
+      },
+      now: () => new Date("2026-06-01T00:00:00.000Z").getTime(),
+    });
+
+    await expect(adapter.health()).resolves.toEqual({ status: "healthy", reason: null });
+    await expect(adapter.synthesize({ text: "नमस्ते", voicePath: "voice_google_tts_ne" })).resolves.toEqual({
+      audioBase64: Buffer.from("mp3-data").toString("base64"),
+      mimeType: "audio/mpeg",
+    });
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://oauth2.googleapis.com/token",
+      "https://texttospeech.googleapis.com/v1/voices?languageCode=ne-NP",
+      "https://texttospeech.googleapis.com/v1/text:synthesize",
+    ]);
+    expect(JSON.parse(String(requests[2]?.init?.body))).toMatchObject({
+      input: { text: "नमस्ते" },
+      voice: { languageCode: "ne-NP" },
+      audioConfig: { audioEncoding: "MP3" },
+    });
+
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   it("maps downloaded TTS model manifest entries to provider health", async () => {

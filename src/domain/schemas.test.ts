@@ -76,7 +76,7 @@ describe("domain schemas", () => {
   });
 
   it("accepts planned open-source TTS provider adapters", () => {
-    for (const adapter of ["indic_parler", "omnivoice", "chatterbox_nepali", "coqui_vits"]) {
+    for (const adapter of ["google_tts", "indic_parler", "omnivoice", "chatterbox_nepali", "coqui_vits"]) {
       const runtime = modelRuntimeSchema.parse({
         id: `runtime_${adapter}`,
         kind: "tts",

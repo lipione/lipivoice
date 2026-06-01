@@ -8,6 +8,9 @@ export interface ServerConfig {
   vllmModel: string;
   lipiMlBaseUrl: string;
   ttsModelManifestPath: string;
+  googleTtsCredentialsPath: string;
+  googleTtsLanguageCode: string;
+  googleTtsVoiceName: string;
   whisperCppBin: string;
   whisperModelPath: string;
   piperBin: string;
@@ -25,6 +28,9 @@ export function loadServerConfig(env = process.env): ServerConfig {
     vllmModel: env.VLLM_MODEL ?? env.LIPIVOICE_LLM_MODEL ?? "gemma-4",
     lipiMlBaseUrl: env.LIPI_ML_BASE_URL ?? "",
     ttsModelManifestPath: env.LIPIVOICE_TTS_MODEL_MANIFEST ?? "",
+    googleTtsCredentialsPath: env.GOOGLE_TTS_CREDENTIALS_PATH ?? env.GOOGLE_APPLICATION_CREDENTIALS ?? "",
+    googleTtsLanguageCode: env.GOOGLE_TTS_LANGUAGE_CODE ?? "ne-NP",
+    googleTtsVoiceName: env.GOOGLE_TTS_VOICE_NAME ?? "",
     whisperCppBin: env.WHISPER_CPP_BIN ?? "",
     whisperModelPath: env.WHISPER_MODEL_PATH ?? "",
     piperBin: env.PIPER_BIN ?? "",

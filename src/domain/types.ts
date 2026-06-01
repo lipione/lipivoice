@@ -5,6 +5,7 @@ export type RuntimeAdapter =
   | "whisper_cpp"
   | "faster_whisper"
   | "piper"
+  | "google_tts"
   | "indic_parler"
   | "omnivoice"
   | "chatterbox_nepali"
@@ -106,7 +107,7 @@ export interface VoiceSample {
   createdAt: string;
 }
 
-export type TtsProviderAccess = "open" | "gated" | "custom_training";
+export type TtsProviderAccess = "open" | "gated" | "custom_training" | "cloud";
 
 export interface TtsProvider {
   id: string;

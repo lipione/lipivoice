@@ -67,6 +67,7 @@ describe("server app", () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       runtimeHealth: {
         piper: async () => ({ status: "healthy", reason: null }),
+        google_tts: async () => ({ status: "healthy", reason: null }),
         omnivoice: async () => ({ status: "healthy", reason: null }),
         indic_parler: async () => ({ status: "license_required", reason: "hf_token_required" }),
       },
@@ -76,6 +77,14 @@ describe("server app", () => {
 
     expect(response.body).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          id: "google_cloud_tts",
+          name: "Google Cloud TTS",
+          access: "cloud",
+          healthStatus: "healthy",
+          runtimeId: "runtime_google_tts",
+          voiceId: "voice_google_tts_ne",
+        }),
         expect.objectContaining({
           id: "indic_parler_tts",
           name: "Indic Parler TTS",
@@ -141,6 +150,45 @@ describe("server app", () => {
       audioBase64: Buffer.from("wav-data").toString("base64"),
       mimeType: "audio/wav",
       latencyMs: expect.any(Number),
+      createdAt: "2026-05-31T00:00:00.000Z",
+    });
+  });
+
+  it("benchmarks Google Cloud TTS through the configured cloud adapter", async () => {
+    const googleTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("mp3-data").toString("base64"),
+        mimeType: "audio/mpeg",
+      })),
+    };
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      ttsAdapters: {
+        google_tts: googleTts,
+      },
+      runtimeHealth: {
+        google_tts: googleTts.health,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const response = await request(app)
+      .post("/api/tts/benchmark")
+      .send({ providerId: "google_cloud_tts", text: "नमस्ते" })
+      .expect(200);
+
+    expect(googleTts.synthesize).toHaveBeenCalledWith({
+      text: "नमस्ते",
+      voicePath: "voice_google_tts_ne",
+    });
+    expect(response.body).toMatchObject({
+      providerId: "google_cloud_tts",
+      providerName: "Google Cloud TTS",
+      status: "generated",
+      healthStatus: "healthy",
+      code: null,
+      audioBase64: Buffer.from("mp3-data").toString("base64"),
+      mimeType: "audio/mpeg",
       createdAt: "2026-05-31T00:00:00.000Z",
     });
   });
@@ -749,6 +797,34 @@ describe("server app", () => {
       text: "Hello",
       audioBase64: "SGVsbG8=",
       mimeType: "audio/wav",
+      createdAt: expect.any(String),
+    });
+  });
+
+  it("generates speech with an injected Google TTS adapter", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      ttsAdapters: {
+        google_tts: {
+          health: async () => ({ status: "healthy", reason: null }),
+          synthesize: async (input) => ({
+            audioBase64: Buffer.from(input.text).toString("base64"),
+            mimeType: "audio/mpeg",
+          }),
+        },
+      },
+    });
+
+    const response = await request(context.app)
+      .post("/api/tts/generate")
+      .send({ text: "नमस्ते", voiceId: "voice_google_tts_ne" })
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      voiceId: "voice_google_tts_ne",
+      voiceName: "Google Cloud Nepali",
+      text: "नमस्ते",
+      audioBase64: Buffer.from("नमस्ते").toString("base64"),
+      mimeType: "audio/mpeg",
       createdAt: expect.any(String),
     });
   });

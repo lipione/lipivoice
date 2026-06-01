@@ -17,12 +17,18 @@ describe("server config", () => {
         VLLM_BASE_URL: "http://127.0.0.1:8002/v1",
         VLLM_MODEL: "gemma-4",
         LIPI_ML_BASE_URL: "http://127.0.0.1:5001",
+        GOOGLE_TTS_CREDENTIALS_PATH: "/run/secrets/google/tts.json",
+        GOOGLE_TTS_LANGUAGE_CODE: "ne-NP",
+        GOOGLE_TTS_VOICE_NAME: "ne-NP-Standard-A",
       }),
     ).toMatchObject({
       runtimePreset: "remote",
       vllmBaseUrl: "http://127.0.0.1:8002/v1",
       vllmModel: "gemma-4",
       lipiMlBaseUrl: "http://127.0.0.1:5001",
+      googleTtsCredentialsPath: "/run/secrets/google/tts.json",
+      googleTtsLanguageCode: "ne-NP",
+      googleTtsVoiceName: "ne-NP-Standard-A",
     });
   });
 });

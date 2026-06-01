@@ -45,7 +45,7 @@ type VoicePipelineEvent =
   | {
       type: "audio";
       actor: "assistant";
-      payload: { audioBase64: string; mimeType: "audio/wav" };
+      payload: { audioBase64: string; mimeType: string };
     };
 
 interface VoicePipelineInput {
@@ -59,7 +59,7 @@ interface VoicePipelineInput {
     chat(args: { model: string; system: string; messages: VoicePipelineMessage[] }): Promise<string>;
   };
   tts: {
-    synthesize(args: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: "audio/wav" }>;
+    synthesize(args: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: string }>;
   };
   history: VoicePipelineMessage[];
   tools?: Tool[];

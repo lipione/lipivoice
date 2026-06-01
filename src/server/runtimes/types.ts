@@ -20,7 +20,7 @@ export interface SttAdapter {
 
 export interface TtsAdapter {
   health(): Promise<RuntimeHealthResult>;
-  synthesize(input: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: "audio/wav" }>;
+  synthesize(input: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: string }>;
 }
 
 export interface VadAdapter {

@@ -117,6 +117,11 @@ describe("domain defaults", () => {
           adapter: "piper",
           endpoint: "http://127.0.0.1:5001/tts",
         }),
+        expect.objectContaining({
+          id: "runtime_google_tts",
+          adapter: "google_tts",
+          endpoint: "https://texttospeech.googleapis.com/v1/text:synthesize",
+        }),
       ]),
     );
     expect(workspace.modelAssets).toEqual(
@@ -124,12 +129,14 @@ describe("domain defaults", () => {
         expect.objectContaining({ id: "model_vllm_remote", name: "gemma-4" }),
         expect.objectContaining({ id: "model_lipi_ml_whisper_large_v3" }),
         expect.objectContaining({ id: "model_lipi_ml_piper" }),
+        expect.objectContaining({ id: "model_google_tts_ne" }),
       ]),
     );
     expect(workspace.voices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "voice_lipi_ml_en", language: "en-US" }),
         expect.objectContaining({ id: "voice_lipi_ml_ne", language: "ne-NP" }),
+        expect.objectContaining({ id: "voice_google_tts_ne", language: "ne-NP" }),
       ]),
     );
   });

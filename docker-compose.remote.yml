@@ -15,9 +15,15 @@ services:
       VLLM_MODEL: ${VLLM_MODEL:-gemma-4}
       LIPI_ML_BASE_URL: ${LIPI_ML_BASE_URL:-http://127.0.0.1:5001}
       LIPIVOICE_TTS_MODEL_MANIFEST: /models/tts/manifest.json
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/lipivoice/google/lipikosh-a6477dd41434.json
+      GOOGLE_TTS_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a6477dd41434.json
+      GOOGLE_STT_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
+      GOOGLE_TTS_LANGUAGE_CODE: ${GOOGLE_TTS_LANGUAGE_CODE:-ne-NP}
+      GOOGLE_TTS_VOICE_NAME: ${GOOGLE_TTS_VOICE_NAME:-}
     volumes:
       - ./data:/app/data
       - /data/models/lipivoice/tts:/models/tts:ro
+      - /data/secrets/lipivoice/google:/run/secrets/lipivoice/google:ro
     restart: unless-stopped
     healthcheck:
       test:

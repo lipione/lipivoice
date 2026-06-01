@@ -31,6 +31,7 @@ import { listTtsProviders } from "@/domain/ttsProviders";
 import { createDatabase } from "./store/database";
 import { createRepositories, type Repositories } from "./store/repositories";
 import type { ServerConfig } from "./config";
+import { GoogleCloudTtsAdapter } from "./runtimes/googleCloudTts";
 import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./runtimes/lipiMl";
 import { OllamaAdapter } from "./runtimes/ollama";
 import { OpenAICompatibleAdapter } from "./runtimes/openAiCompatible";
@@ -47,6 +48,7 @@ type EvalResponder = (input: { agent: Agent; evalCase: EvalCase }) => Promise<st
 
 interface AppDeps {
   tts?: TtsAdapter | null;
+  ttsAdapters?: Partial<Record<RuntimeAdapter, TtsAdapter>>;
   runtimeHealth?: RuntimeHealthChecks;
   realtimeSessions?: RealtimeSessionStore;
   toolFetch?: typeof fetch;
@@ -82,13 +84,23 @@ export function createApp(config: ServerConfig): AppContext {
     const stt = new LipiMlSttAdapter({ baseUrl: config.lipiMlBaseUrl });
     const tts = new LipiMlTtsAdapter({ baseUrl: config.lipiMlBaseUrl });
     const ttsModelCatalog = new TtsModelCatalog({ manifestPath: config.ttsModelManifestPath });
+    const googleTts = new GoogleCloudTtsAdapter({
+      credentialsPath: config.googleTtsCredentialsPath,
+      languageCode: config.googleTtsLanguageCode,
+      voiceName: config.googleTtsVoiceName,
+    });
 
     return createAppContextWithRepositories(repositories, {
       tts,
+      ttsAdapters: {
+        piper: tts,
+        google_tts: googleTts,
+      },
       runtimeHealth: {
         vllm: () => vllm.health(),
         faster_whisper: () => stt.health(),
         piper: () => tts.health(),
+        google_tts: () => googleTts.health(),
         indic_parler: () => ttsModelCatalog.health("indic_parler"),
         omnivoice: () => ttsModelCatalog.health("omnivoice"),
         chatterbox_nepali: () => ttsModelCatalog.health("chatterbox_nepali"),
@@ -99,13 +111,23 @@ export function createApp(config: ServerConfig): AppContext {
   const ollama = new OllamaAdapter({ baseUrl: config.ollamaBaseUrl, model: config.ollamaModel });
   const whisper = new WhisperCppAdapter({ binPath: config.whisperCppBin, modelPath: config.whisperModelPath });
   const piper = new PiperAdapter({ binPath: config.piperBin, voicePath: config.piperVoicePath });
+  const googleTts = new GoogleCloudTtsAdapter({
+    credentialsPath: config.googleTtsCredentialsPath,
+    languageCode: config.googleTtsLanguageCode,
+    voiceName: config.googleTtsVoiceName,
+  });
 
   return createAppContextWithRepositories(repositories, {
     tts: piper,
+    ttsAdapters: {
+      piper,
+      google_tts: googleTts,
+    },
     runtimeHealth: {
       ollama: () => ollama.health(),
       whisper_cpp: () => whisper.health(),
       piper: () => piper.health(),
+      google_tts: () => googleTts.health(),
     },
   });
 }
@@ -551,7 +573,9 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
-      if (provider.adapter !== "piper") {
+      const ttsAdapter = deps.ttsAdapters?.[provider.adapter] ?? (provider.adapter === "piper" ? deps.tts : null);
+
+      if (!ttsAdapter) {
         response
           .status(409)
           .json(createBenchmarkResult(provider, text, {
@@ -562,7 +586,7 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
-      if (!deps.tts || !provider.voiceId) {
+      if (!provider.voiceId) {
         response
           .status(409)
           .json(createBenchmarkResult(provider, text, {
@@ -574,7 +598,7 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
       }
 
       const startedAt = Date.now();
-      const synthesized = await deps.tts.synthesize({ text, voicePath: provider.voiceId });
+      const synthesized = await ttsAdapter.synthesize({ text, voicePath: provider.voiceId });
 
       response.json(
         createBenchmarkResult(provider, text, {
@@ -605,23 +629,25 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
       const voiceRuntime = voice
         ? repositories.runtimes.list().find((runtime) => runtime.id === voice.runtimeId)
         : null;
-      if (!voice || voiceRuntime?.adapter !== "piper") {
+      if (!voice || !voiceRuntime) {
         response.status(404).json({ code: "voice_not_found" });
         return;
       }
 
-      if (!deps.tts) {
+      const ttsAdapter = deps.ttsAdapters?.[voiceRuntime.adapter] ?? (voiceRuntime.adapter === "piper" ? deps.tts : null);
+
+      if (!ttsAdapter) {
         response.status(409).json({ code: "runtime_not_configured" });
         return;
       }
 
-      const health = await deps.tts.health();
+      const health = await ttsAdapter.health();
       if (health.status !== "healthy") {
         response.status(409).json({ code: "runtime_not_configured" });
         return;
       }
 
-      const synthesized = await deps.tts.synthesize({ text, voicePath: voiceId });
+      const synthesized = await ttsAdapter.synthesize({ text, voicePath: voiceId });
       const sample = repositories.voiceSamples.append({
         voiceId: voice.id,
         voiceName: voice.name,

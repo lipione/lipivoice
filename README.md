@@ -42,6 +42,9 @@ export VLLM_BASE_URL=http://127.0.0.1:8002/v1
 export VLLM_MODEL=gemma-4
 export LIPI_ML_BASE_URL=http://127.0.0.1:5001
 export LIPIVOICE_TTS_MODEL_MANIFEST=/data/models/lipivoice/tts/manifest.json
+export GOOGLE_TTS_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a6477dd41434.json
+export GOOGLE_STT_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
+export GOOGLE_TTS_LANGUAGE_CODE=ne-NP
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
@@ -51,6 +54,7 @@ The remote preset seeds the workspace with:
 - `lipi-ml` faster-whisper large-v3 for STT.
 - `lipi-ml` Piper voices for English and Nepali TTS.
 - A manifest-backed model catalog for downloaded Nepali TTS candidates.
+- Optional Google Cloud credentials mounted as deploy-time secrets for cloud TTS/STT fallback experiments.
 
 Voice Lab also exposes a Nepali TTS provider benchmark catalog:
 
