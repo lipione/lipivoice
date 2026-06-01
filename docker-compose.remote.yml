@@ -14,8 +14,10 @@ services:
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://127.0.0.1:8002/v1}
       VLLM_MODEL: ${VLLM_MODEL:-gemma-4}
       LIPI_ML_BASE_URL: ${LIPI_ML_BASE_URL:-http://127.0.0.1:5001}
+      LIPIVOICE_TTS_MODEL_MANIFEST: /models/tts/manifest.json
     volumes:
       - ./data:/app/data
+      - /data/models/lipivoice/tts:/models/tts:ro
     restart: unless-stopped
     healthcheck:
       test:

@@ -8,6 +8,7 @@ import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./lipiMl";
 import { OllamaAdapter } from "./ollama";
 import { OpenAICompatibleAdapter } from "./openAiCompatible";
 import { PiperAdapter } from "./piper";
+import { TtsModelCatalog } from "./ttsModelCatalog";
 import { WhisperCppAdapter } from "./whisperCpp";
 
 describe("runtime adapters", () => {
@@ -217,6 +218,37 @@ describe("runtime adapters", () => {
 
     expect(requests[0]?.url).toBe("http://lipi-ml.test/tts");
     expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ text: "Namaste", language: "ne" });
+  });
+
+  it("maps downloaded TTS model manifest entries to provider health", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-model-catalog-test-"));
+    const manifestPath = join(tempDir, "manifest.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        models: {
+          indic_parler_tts: { status: "gated_missing_hf_token", file_count: 1, bytes: 100 },
+          omnivoice_gguf: { status: "downloaded", file_count: 4, bytes: 1_600_000_000 },
+          chatterbox_base: { status: "downloaded", file_count: 9, bytes: 3_000_000_000 },
+          chatterbox_nepali: { status: "gated_missing_hf_token", file_count: 1, bytes: 100 },
+          coqui_piper_vits: { status: "linked_existing", file_count: 2, bytes: 75_000_000 },
+        },
+      }),
+    );
+    const catalog = new TtsModelCatalog({ manifestPath });
+
+    await expect(catalog.health("omnivoice")).resolves.toEqual({ status: "healthy", reason: null });
+    await expect(catalog.health("indic_parler")).resolves.toEqual({
+      status: "license_required",
+      reason: "hf_token_required",
+    });
+    await expect(catalog.health("chatterbox_nepali")).resolves.toEqual({
+      status: "license_required",
+      reason: "hf_token_required",
+    });
+    await expect(catalog.health("coqui_vits")).resolves.toEqual({ status: "healthy", reason: null });
+
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   it("reports whisper runtime_not_configured when paths are missing", async () => {

@@ -7,6 +7,7 @@ export interface ServerConfig {
   vllmBaseUrl: string;
   vllmModel: string;
   lipiMlBaseUrl: string;
+  ttsModelManifestPath: string;
   whisperCppBin: string;
   whisperModelPath: string;
   piperBin: string;
@@ -23,6 +24,7 @@ export function loadServerConfig(env = process.env): ServerConfig {
     vllmBaseUrl: env.VLLM_BASE_URL ?? "",
     vllmModel: env.VLLM_MODEL ?? env.LIPIVOICE_LLM_MODEL ?? "gemma-4",
     lipiMlBaseUrl: env.LIPI_ML_BASE_URL ?? "",
+    ttsModelManifestPath: env.LIPIVOICE_TTS_MODEL_MANIFEST ?? "",
     whisperCppBin: env.WHISPER_CPP_BIN ?? "",
     whisperModelPath: env.WHISPER_MODEL_PATH ?? "",
     piperBin: env.PIPER_BIN ?? "",

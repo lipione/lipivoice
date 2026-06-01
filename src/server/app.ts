@@ -35,6 +35,7 @@ import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./runtimes/lipiMl";
 import { OllamaAdapter } from "./runtimes/ollama";
 import { OpenAICompatibleAdapter } from "./runtimes/openAiCompatible";
 import { PiperAdapter } from "./runtimes/piper";
+import { TtsModelCatalog } from "./runtimes/ttsModelCatalog";
 import { WhisperCppAdapter } from "./runtimes/whisperCpp";
 import type { RuntimeHealthResult, TtsAdapter } from "./runtimes/types";
 import { createRealtimeSessionStore, type RealtimeSessionStore } from "./realtime/sessionTokens";
@@ -80,6 +81,7 @@ export function createApp(config: ServerConfig): AppContext {
     const vllm = new OpenAICompatibleAdapter({ baseUrl: config.vllmBaseUrl, model: config.vllmModel });
     const stt = new LipiMlSttAdapter({ baseUrl: config.lipiMlBaseUrl });
     const tts = new LipiMlTtsAdapter({ baseUrl: config.lipiMlBaseUrl });
+    const ttsModelCatalog = new TtsModelCatalog({ manifestPath: config.ttsModelManifestPath });
 
     return createAppContextWithRepositories(repositories, {
       tts,
@@ -87,6 +89,9 @@ export function createApp(config: ServerConfig): AppContext {
         vllm: () => vllm.health(),
         faster_whisper: () => stt.health(),
         piper: () => tts.health(),
+        indic_parler: () => ttsModelCatalog.health("indic_parler"),
+        omnivoice: () => ttsModelCatalog.health("omnivoice"),
+        chatterbox_nepali: () => ttsModelCatalog.health("chatterbox_nepali"),
       },
     });
   }
@@ -798,10 +803,8 @@ async function listTtsProviderStatus(
   runtimeHealth: RuntimeHealthChecks | undefined,
 ): Promise<TtsProvider[]> {
   const runtimes = repositories.runtimes.list();
-  const ttsAdapters = new Set(runtimes.filter((runtime) => runtime.kind === "tts").map((runtime) => runtime.adapter));
   const overlayEntries = await Promise.all(
     Object.entries(runtimeHealth ?? {})
-      .filter(([adapter]) => ttsAdapters.has(adapter as RuntimeAdapter))
       .map(async ([adapter, checkHealth]) => {
         const health = await checkHealth();
         return [

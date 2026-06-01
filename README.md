@@ -41,6 +41,7 @@ export LIPIVOICE_RUNTIME_PRESET=remote
 export VLLM_BASE_URL=http://127.0.0.1:8002/v1
 export VLLM_MODEL=gemma-4
 export LIPI_ML_BASE_URL=http://127.0.0.1:5001
+export LIPIVOICE_TTS_MODEL_MANIFEST=/data/models/lipivoice/tts/manifest.json
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
@@ -49,6 +50,7 @@ The remote preset seeds the workspace with:
 - vLLM as the OpenAI-compatible LLM runtime.
 - `lipi-ml` faster-whisper large-v3 for STT.
 - `lipi-ml` Piper voices for English and Nepali TTS.
+- A manifest-backed model catalog for downloaded Nepali TTS candidates.
 
 Voice Lab also exposes a Nepali TTS provider benchmark catalog:
 

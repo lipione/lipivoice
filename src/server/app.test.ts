@@ -67,6 +67,8 @@ describe("server app", () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       runtimeHealth: {
         piper: async () => ({ status: "healthy", reason: null }),
+        omnivoice: async () => ({ status: "healthy", reason: null }),
+        indic_parler: async () => ({ status: "license_required", reason: "hf_token_required" }),
       },
     });
 
@@ -78,13 +80,14 @@ describe("server app", () => {
           id: "indic_parler_tts",
           name: "Indic Parler TTS",
           role: "best proven Nepali baseline",
-          healthStatus: "missing_model",
+          healthStatus: "license_required",
         }),
         expect.objectContaining({
           id: "omnivoice",
           name: "OmniVoice",
           role: "experimental multilingual and cloning candidate",
-          healthStatus: "missing_model",
+          healthStatus: "healthy",
+          runtimeId: null,
         }),
         expect.objectContaining({
           id: "chatterbox_nepali",
