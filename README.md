@@ -2,7 +2,18 @@
 
 LipiVoice is a local, open-source voice agent prototype in the style of Vapi or Voice.ai. It is built to run against local runtimes instead of depending on a hosted SaaS voice stack.
 
-The MVP includes a React operator console, an Express API, SQLite-backed seed data, local runtime health checks, simulated call records, a Web Voice surface, and a Voice Lab text-to-speech surface.
+The MVP includes a React operator console, an Express API, SQLite-backed seed data, local runtime health checks, simulated call records, a Web Voice surface, and a Voice Lab text-to-speech surface. The current remote deployment also includes a Nepali TTS provider catalog for testing open-source and cloud fallback options side by side.
+
+## What Works Now
+
+- Dashboard shell with agents, runtime status, Web Voice, calls, Voice Lab, and usage surfaces.
+- Express API with SQLite persistence and seeded local or remote runtime configuration.
+- Web Voice session setup over WebSocket with explicit runtime health checks before audio processing.
+- Local runtime adapters for Ollama, whisper.cpp, Piper, and energy-based VAD.
+- Remote runtime adapters for vLLM, `lipi-ml` faster-whisper STT, and `lipi-ml` Piper TTS.
+- Voice Lab speech generation through configured Piper or `lipi-ml` TTS.
+- Nepali TTS provider catalog and benchmark API for Google Cloud TTS, Indic Parler TTS, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
+- Optional Google Cloud TTS adapter using server-side service-account credentials. Google STT credentials can be mounted for future work, but there is no Google STT adapter yet.
 
 ## Local Runtime Setup
 
@@ -34,7 +45,7 @@ If Piper is not configured, Voice Lab intentionally reports `runtime_not_configu
 
 ## Remote Runtime Setup
 
-Use the remote preset when running against the shared GPU server services:
+Use the remote preset when running against the shared GPU server services. For a bare host process, the environment looks like:
 
 ```sh
 export LIPIVOICE_RUNTIME_PRESET=remote
@@ -45,6 +56,7 @@ export LIPIVOICE_TTS_MODEL_MANIFEST=/data/models/lipivoice/tts/manifest.json
 export GOOGLE_TTS_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a6477dd41434.json
 export GOOGLE_STT_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
 export GOOGLE_TTS_LANGUAGE_CODE=ne-NP
+export GOOGLE_TTS_VOICE_NAME=
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
@@ -56,12 +68,39 @@ The remote preset seeds the workspace with:
 - A manifest-backed model catalog for downloaded Nepali TTS candidates.
 - Optional Google Cloud credentials mounted as deploy-time secrets for cloud TTS/STT fallback experiments.
 
-Voice Lab also exposes a Nepali TTS provider benchmark catalog:
+The Docker remote deployment uses container paths instead:
 
-- Indic Parler TTS as the Nepali baseline candidate.
-- OmniVoice as the experimental multilingual and cloning candidate.
-- Chatterbox Nepali as the gated Nepali-specific cloning candidate.
-- Coqui VITS / Piper-VITS as the stable custom-training path.
+- Host model root: `/data/models/lipivoice/tts`
+- Container model mount: `/models/tts:ro`
+- Host manifest: `/data/models/lipivoice/tts/manifest.json`
+- Container manifest: `/models/tts/manifest.json`
+- Host Google secret root: `/data/secrets/lipivoice/google`
+- Container Google secret mount: `/run/secrets/lipivoice/google:ro`
+
+Set up Google service-account files on the remote server without committing them:
+
+```sh
+install -d -m 700 /data/secrets/lipivoice/google
+cp /path/to/lipikosh-a6477dd41434.json /data/secrets/lipivoice/google/
+cp /path/to/lipikosh-a5a135de8c87.json /data/secrets/lipivoice/google/
+chmod 600 /data/secrets/lipivoice/google/*.json
+```
+
+The JSON files must stay out of Git. The compose file mounts that directory read-only and sets:
+
+- `GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
+- `GOOGLE_TTS_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
+- `GOOGLE_STT_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json`
+
+Voice Lab exposes this Nepali TTS provider benchmark catalog:
+
+| Provider | Role | Current remote state |
+| --- | --- | --- |
+| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Credentials are mounted and readable, but `ne-NP` currently reports `missing_model` / `voice_not_available`, so benchmark does not generate audio yet. Try an explicit `GOOGLE_TTS_VOICE_NAME` only after confirming Google lists a supported Nepali voice. |
+| Indic Parler TTS | Best proven Nepali baseline candidate | Catalog entry is gated by Hugging Face access or token acceptance and reports `license_required` until that is resolved. |
+| OmniVoice | Experimental multilingual and cloning candidate | Model files are downloaded and catalog health is `healthy`, but benchmark returns `provider_adapter_not_connected` until an inference runner is wired. |
+| Chatterbox Nepali | Nepali-specific cloning candidate | Hugging Face gated model access is still required, so it reports `license_required`. |
+| Coqui VITS / Piper-VITS | Stable custom Nepali voice path | Healthy through the current `lipi-ml` / Piper path; benchmark generates WAV audio. |
 
 On the remote server, build and run without installing host Node:
 
@@ -70,6 +109,24 @@ docker compose -f docker-compose.remote.yml up -d --build
 ```
 
 The container uses host networking so it can reach existing services on `127.0.0.1:8002` and `127.0.0.1:5001`. The app listens on `http://127.0.0.1:8787`.
+
+Useful remote checks:
+
+```sh
+curl -s http://127.0.0.1:8787/api/health
+curl -s http://127.0.0.1:8787/api/model-runtimes
+curl -s http://127.0.0.1:8787/api/tts/providers
+curl -s -X POST http://127.0.0.1:8787/api/tts/benchmark \
+  -H 'content-type: application/json' \
+  -d '{"providerId":"coqui_piper_vits","text":"नमस्ते, लिपिभ्वाइस परीक्षण हो।"}'
+```
+
+Expected provider behavior on the current remote server:
+
+- `coqui_piper_vits` can generate audio through `lipi-ml` / Piper.
+- `google_cloud_tts` is configured but unavailable for the configured `ne-NP` voice.
+- `omnivoice` is downloaded but does not synthesize until its adapter is implemented.
+- `indic_parler_tts` and `chatterbox_nepali` require gated model access or accepted license terms.
 
 ## Development
 

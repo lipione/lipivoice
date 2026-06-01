@@ -19,14 +19,14 @@ LipiVoice will include these product areas:
 - Knowledge Base: attach FAQs or documents to agents for retrieval-style answers in a later local embedding/vector-search implementation.
 - Evals: define mock conversations and checks, run them against an agent, and show pass/fail results with prompt improvement hints.
 - Usage and Limits: display minutes, sessions, active phone numbers, concurrent-call limits, local compute estimates, and carrier/provider cost estimates where applicable.
-- Security and Compliance Readiness: manage local model runtime settings, optional provider keys for non-AI integrations, webhook signing settings, recording toggles, cloned-voice consent records, and deployment-readiness indicators without claiming actual compliance certification.
+- Security and Compliance Readiness: manage local model runtime settings, optional provider keys for telephony or cloud fallback experiments, webhook signing settings, recording toggles, cloned-voice consent records, and deployment-readiness indicators without claiming actual compliance certification.
 - SDK Playground: generate JavaScript/TypeScript snippets for connecting a browser voice session to a LipiVoice agent.
 
 ## Design References
 
 Vapi's quickstart emphasizes agent creation, browser/phone calls, tool calls, squads, events, transcripts, and production observability. Voice.ai adds a stronger voice infrastructure layer: TTS, voice cloning, pronunciation dictionaries, credits/concurrency, SDK connection details, event webhooks, and explicit safety/consent positioning.
 
-The LipiVoice implementation differs intentionally from both products by making open-source and self-hosted model runtimes the default. Closed AI APIs are not part of the first implementation.
+The LipiVoice implementation differs intentionally from both products by making open-source and self-hosted model runtimes the default. Closed hosted AI APIs are not the default runtime path. Google Cloud TTS is allowed as an optional server-side fallback experiment for Nepali voice coverage, with explicit provider status and no browser-side credentials.
 
 Public references reviewed:
 
@@ -48,6 +48,27 @@ Public references reviewed:
 - https://github.com/hexgrad/kokoro
 - https://huggingface.co/hexgrad/Kokoro-82M
 - https://docs.coqui.ai/en/stable/models/xtts.html
+
+## Current Implementation Status - 2026-06-01
+
+The first runnable slice is implemented and deployed on the remote GPU server under the remote preset:
+
+- Local preset: Ollama LLM, whisper.cpp STT, Piper TTS, and energy VAD.
+- Remote preset: vLLM LLM, `lipi-ml` faster-whisper STT, `lipi-ml` Piper TTS, and energy VAD.
+- Persistence: SQLite seeded with agents, voices, runtimes, calls, tools, knowledge base records, eval records, and usage records.
+- Voice Lab: generates speech through the configured TTS adapter and exposes a provider benchmark catalog.
+- Remote model catalog: reads `/models/tts/manifest.json` in Docker, mapped from `/data/models/lipivoice/tts/manifest.json` on the host.
+- Remote Google secrets: mounted read-only from `/data/secrets/lipivoice/google` into `/run/secrets/lipivoice/google`.
+
+Current Nepali TTS provider readiness:
+
+| Provider | Current status | Next implementation work |
+| --- | --- | --- |
+| Google Cloud TTS | Credentials are configured, but the configured `ne-NP` language reports `missing_model` / `voice_not_available`; benchmark does not generate audio. | Confirm a supported Nepali Google voice or switch language/voice config; keep credentials server-side only. |
+| Indic Parler TTS | `license_required` because gated Hugging Face access or token acceptance is still unresolved. | Add accepted HF token, download model files, then wire an inference adapter. |
+| OmniVoice | Catalog health is `healthy`; benchmark returns `provider_adapter_not_connected`. | Implement the OmniVoice inference runner and expose generated audio through the benchmark path. |
+| Chatterbox Nepali | `license_required` because the Nepali model is gated. | Accept license terms, download with HF token, then wire cloning-capable inference. |
+| Coqui VITS / Piper-VITS | `healthy`; benchmark generates WAV audio through the current `lipi-ml` / Piper path. | Train or package a stable custom Nepali voice when production voice quality is required. |
 
 ## Architecture
 
@@ -82,6 +103,8 @@ Backend modules:
 - `GET/POST /api/agents`: reads and writes agent configs.
 - `GET/POST /api/voices`: manages built-in, local runtime, and cloned voice records.
 - `POST /api/tts/generate`: generates or streams speech through a configured local/open-source TTS runtime.
+- `GET /api/tts/providers`: lists current Nepali TTS provider candidates with configured state, health, access model, language support, capabilities, runtime id, and voice id.
+- `POST /api/tts/benchmark`: attempts synthesis through a selected provider and returns generated audio or a structured readiness failure.
 - `POST /api/voice-clones`: creates consent-gated voice clone requests and tracks status.
 - `GET/POST /api/tools`: manages API tool definitions.
 - `POST /api/tools/execute`: executes API request tools with logs and timeout handling.
@@ -98,8 +121,12 @@ Model runtime adapters:
 - `runtime/llm/vllmAdapter`: self-hosted OpenAI API-compatible inference for larger deployments.
 - `runtime/stt/whisperCppAdapter`: local/offline Whisper transcription with CPU, Metal, Core ML, or GPU acceleration depending on host support.
 - `runtime/stt/fasterWhisperAdapter`: faster Whisper transcription through CTranslate2 for GPU-backed setups.
+- `runtime/stt/lipiMlAdapter`: remote `lipi-ml` faster-whisper STT integration.
 - `runtime/vad/sileroAdapter`: local voice activity detection.
 - `runtime/tts/piperAdapter`: fast local neural TTS.
+- `runtime/tts/lipiMlAdapter`: remote `lipi-ml` Piper TTS integration for English and Nepali voices.
+- `runtime/tts/googleCloudTtsAdapter`: optional Google Cloud TTS fallback using service-account credentials and returning MP3 audio.
+- `runtime/tts/modelCatalog`: manifest-backed health and license status for downloaded TTS candidates such as Indic Parler, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
 - `runtime/tts/kokoroAdapter`: open-weight local TTS with Apache-licensed weights.
 - `runtime/tts/coquiAdapter`: optional local multilingual TTS and voice-cloning experiments, subject to model license review.
 - `telephony/twilioAdapter`: future phone provider behind a common interface.
@@ -111,7 +138,7 @@ Core shared modules:
 - `validation`: shared validation for agents, tools, voices, evals, model runtimes, licenses, and external credentials.
 - `store`: local JSON or SQLite persistence for prototype data.
 - `usage`: minute counting, local compute estimates, optional carrier/provider cost estimates, and concurrency counters.
-- `modelRegistry`: installed model inventory, runtime health, license metadata, and default model selection.
+- `modelRegistry`: installed model inventory, runtime health, manifest-backed model catalog status, license metadata, and default model selection.
 
 ## Data Model
 
@@ -132,6 +159,8 @@ Core records:
 - `ModelRuntime`: id, kind, adapter, endpoint, configured state, health status, default model id, concurrency limit, and hardware hints.
 - `ModelAsset`: id, runtime id, name, kind, family, version, path or remote tag, license, parameter size, quantization, language support, and installed state.
 - `RuntimeHealth`: runtime id, status, checked timestamp, latency, loaded models, hardware acceleration, and error reason.
+- `TtsProvider`: id, name, role, access model, adapter, source URL, license, language support, capabilities, hardware hints, configured state, health status, runtime id, and voice id.
+- `TtsBenchmarkResult`: provider id/name, text, generated/unavailable status, health status, code, optional base64 audio, MIME type, latency, and timestamp.
 
 ## Core Workflows
 
@@ -158,6 +187,14 @@ Generate speech:
 2. User selects voice, language, and pronunciation dictionary.
 3. Backend generates or streams speech through the configured local TTS runtime.
 4. UI plays the result and stores a voice sample record.
+
+Benchmark Nepali TTS providers:
+
+1. User opens the Voice Lab provider catalog.
+2. UI fetches `/api/tts/providers` and shows current health, access requirements, and capabilities for each provider.
+3. User chooses a provider and benchmark text.
+4. Backend checks provider health and adapter availability before synthesis.
+5. UI plays generated audio when available or shows a structured reason such as `license_required`, `provider_not_installed`, `provider_adapter_not_connected`, or `provider_unavailable`.
 
 Clone a voice:
 
@@ -241,8 +278,10 @@ All failures should write call or system events with structured reasons. User-fa
 ## Safety and Security
 
 - The default AI path uses local/open-source runtimes and does not require closed AI API keys.
-- Optional API keys for telephony or future external providers stay server-side. Browser clients only receive short-lived LipiVoice session credentials.
+- Optional API keys or service-account files for telephony, Google Cloud TTS, or future external providers stay server-side. Browser clients only receive short-lived LipiVoice session credentials.
+- Google service-account JSON files are mounted read-only in deployment and must never be committed to Git.
 - Model assets store visible license metadata, and the UI must not hide license constraints.
+- Hugging Face gated model access must be represented as `license_required` until terms are accepted and tokens are configured.
 - Voice cloning requires consent metadata before a clone record can be created.
 - Cloned voices default to private.
 - Recording is controlled per agent and visible before calls.
@@ -297,7 +336,7 @@ Completion checks:
 - Multi-tenant auth and RBAC.
 - Production-grade RAG indexing.
 - Public voice marketplace.
-- Closed AI model APIs as the default runtime path.
+- Closed hosted AI model APIs as the default runtime path. Optional cloud fallback adapters may exist, but they must be explicit, server-side, and non-default.
 - Real voice clone generation unless a local/open-source cloning runtime is installed and its license permits the intended use.
 
 ## Open Implementation Decisions
@@ -305,8 +344,9 @@ Completion checks:
 - Choose local persistence: JSON file for speed or SQLite for migration realism.
 - Choose test runner: Vitest is the likely fit for Vite/React.
 - Choose backend runtime: Express is simple; Fastify is stricter and faster.
-- Choose exact default local model presets for LLM, STT, VAD, TTS, and embeddings.
-- Choose runtime bootstrap strategy: user-installed local services, Docker Compose, or managed local scripts.
+- Choose exact default local model presets for LLM, STT, VAD, TTS, and embeddings beyond the current Ollama, whisper.cpp, Piper, and energy VAD defaults.
+- Choose runtime bootstrap strategy for local contributors: user-installed local services, Docker Compose, or managed local scripts.
 - Choose whether the first implementation depends on Ollama being installed or includes a no-model simulator fallback for UI-only testing.
+- Choose final Nepali voice quality path after benchmarking Indic Parler, OmniVoice, Chatterbox Nepali, Google Cloud TTS, and custom Coqui/Piper-VITS training.
 
 Default recommendation: use SQLite, Vitest, Express, Ollama for the first LLM adapter, whisper.cpp or faster-whisper for STT, Silero VAD for turn detection, Piper or Kokoro for the first TTS adapter, and simulated telephony behind explicit provider-not-configured states.

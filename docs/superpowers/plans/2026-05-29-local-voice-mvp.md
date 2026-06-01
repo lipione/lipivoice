@@ -10,6 +10,48 @@
 
 ---
 
+## Status Update - 2026-06-01
+
+The phase 1 MVP is implemented and has been extended beyond the original local-only plan.
+
+Completed implementation:
+
+- React/Vite dashboard, Express API, SQLite persistence, seeded agents/runtimes/calls/tools/voices/evals/usage, and shadcn-style owned UI primitives.
+- Local runtime preset for Ollama, whisper.cpp, Piper, and energy VAD.
+- Remote runtime preset for vLLM, `lipi-ml` faster-whisper STT, `lipi-ml` Piper TTS, and energy VAD.
+- Web Voice session creation and WebSocket orchestration with explicit runtime-not-configured states.
+- Voice Lab TTS generation through the configured TTS adapter.
+- Nepali TTS provider catalog through `GET /api/tts/providers`.
+- Provider benchmark route through `POST /api/tts/benchmark`.
+- Manifest-backed remote model catalog via `LIPIVOICE_TTS_MODEL_MANIFEST`.
+- Optional Google Cloud TTS adapter using server-side service-account credentials and returning MP3 audio.
+
+Important files added after the original plan:
+
+- `src/domain/ttsProviders.ts`: provider definitions for Google Cloud TTS, Indic Parler TTS, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
+- `src/server/runtimes/ttsModelCatalog.ts`: manifest-backed health and license checks for downloaded TTS candidates.
+- `src/server/runtimes/googleCloudTts.ts`: Google service-account auth, voice health check, and MP3 synthesis adapter.
+- `docker-compose.remote.yml`: remote Docker deployment with host networking, model catalog mount, and Google secret mount.
+
+Current remote provider status:
+
+| Provider | Status | Notes |
+| --- | --- | --- |
+| Google Cloud TTS | Configured but unavailable for current voice | Credentials are mounted, but `ne-NP` reports `missing_model` / `voice_not_available`; benchmark does not generate audio yet. |
+| Indic Parler TTS | `license_required` | Requires Hugging Face token or accepted terms before model files can be used. |
+| OmniVoice | Catalog `healthy`, benchmark unavailable | Model files are present, but inference is not connected, so benchmark returns `provider_adapter_not_connected`. |
+| Chatterbox Nepali | `license_required` | Nepali-specific model is gated and still needs accepted access. |
+| Coqui VITS / Piper-VITS | `healthy` | Current `lipi-ml` / Piper path generates WAV audio and is the working baseline. |
+
+Remaining follow-up work:
+
+- Implement real inference adapters for OmniVoice and Indic Parler TTS.
+- Unlock and wire Chatterbox Nepali after gated model access is accepted.
+- Confirm whether Google Cloud TTS exposes a usable Nepali voice for this project, or keep it as a configured-but-unavailable fallback.
+- Train or package a stable custom Nepali Coqui/Piper voice for production-quality output.
+- Add Google STT only if needed; credentials can be mounted, but no Google STT adapter exists now.
+- Expose richer provider failure reasons in the Voice Lab UI if operator debugging needs more detail than the current status/code.
+
 ## Scope
 
 This is phase 1 of the approved platform spec. It delivers working software for:
