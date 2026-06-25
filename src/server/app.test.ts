@@ -1826,6 +1826,57 @@ describe("server app", () => {
     });
   });
 
+  it("automatically launches scheduled renewal campaigns when they become due", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-24T00:00:00.000Z"));
+    const initiateOutboundCall = vi.fn(async () => ({ callId: "call_auto_1" }));
+    const context = createAppContextForTest(createDefaultWorkspace("2026-06-24T00:00:00.000Z"), {
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      initiateOutboundCall,
+      campaignSchedulerIntervalMs: 10,
+    });
+    const agentId = context.repositories.agents.list()[0].id;
+
+    try {
+      await request(context.app)
+        .post("/api/renewals/import")
+        .send({
+          records: [
+            {
+              customerName: "Ram Shrestha",
+              phoneNumber: "+977 9841234567",
+              policyNumber: "SALICO-MOTOR-12345",
+              policyType: "motor",
+              premium: 18000,
+              endDate: "2026-07-15",
+              renewalDueDate: "2026-07-15",
+            },
+          ],
+        })
+        .expect(201);
+
+      const campaign = await request(context.app)
+        .post("/api/campaigns/build-renewal")
+        .send({ agentId, withinDays: 45, scheduledAt: "2026-06-24T00:00:00.000Z" })
+        .expect(201);
+      expect(campaign.body).toMatchObject({ status: "scheduled", totalContacts: 1 });
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(initiateOutboundCall).toHaveBeenCalledWith(expect.objectContaining({
+        agentId,
+        campaignId: campaign.body.id,
+        campaignRunId: expect.any(String),
+        contextPromptSuffix: expect.stringContaining("Policy number: SALICO-MOTOR-12345"),
+      }));
+      const runs = await request(context.app).get(`/api/campaigns/${campaign.body.id}/runs`).expect(200);
+      expect(runs.body[0]).toMatchObject({ status: "connected", callId: "call_auto_1" });
+    } finally {
+      context.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("returns phone_number_unassigned when a number has no routed agent", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
 

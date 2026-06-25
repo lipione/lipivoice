@@ -57,6 +57,7 @@ export function CampaignsPage() {
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [renewalAgentId, setRenewalAgentId] = useState("");
   const [renewalDays, setRenewalDays] = useState(30);
+  const [renewalScheduledAt, setRenewalScheduledAt] = useState("");
   const [isBuildingRenewal, setIsBuildingRenewal] = useState(false);
 
   async function loadCampaigns() {
@@ -127,6 +128,7 @@ export function CampaignsPage() {
       const campaign = await postJson<Campaign>("/api/campaigns/build-renewal", {
         agentId: renewalAgentId,
         withinDays: renewalDays,
+        scheduledAt: renewalScheduledAt ? new Date(renewalScheduledAt).toISOString() : null,
       });
       setCampaigns((prev) => [campaign, ...prev]);
     } finally {
@@ -182,11 +184,11 @@ export function CampaignsPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle>Build renewal campaign</CardTitle>
-          <CardDescription>Generate a call batch from policies due for renewal.</CardDescription>
+          <CardTitle>Renewal auto-calls</CardTitle>
+          <CardDescription>Find policies due for renewal and let the dialer call them at the scheduled time.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-[minmax(12rem,1fr)_12rem_auto] md:items-end">
+          <div className="grid gap-3 md:grid-cols-[minmax(12rem,1fr)_10rem_14rem_auto] md:items-end">
             <div className="grid gap-2">
               <Label htmlFor="renewal-agent">Agent</Label>
               <select
@@ -211,9 +213,18 @@ export function CampaignsPage() {
                 onChange={(e) => setRenewalDays(Number(e.target.value))}
               />
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="renewal-scheduled-at">Auto-call at</Label>
+              <Input
+                id="renewal-scheduled-at"
+                type="datetime-local"
+                value={renewalScheduledAt}
+                onChange={(e) => setRenewalScheduledAt(e.target.value)}
+              />
+            </div>
             <Button size="sm" variant="outline" disabled={isBuildingRenewal} onClick={() => void handleBuildRenewal()}>
               {isBuildingRenewal ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-              Build batch
+              {renewalScheduledAt ? "Schedule calls" : "Build batch"}
             </Button>
           </div>
         </CardContent>

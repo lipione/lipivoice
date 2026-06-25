@@ -111,6 +111,7 @@ interface AppDeps {
   adminUsername?: string;
   adminPassword?: string;
   initiateOutboundCall?: (input: OutboundCallRequest) => Promise<{ callId: string } | null>;
+  campaignSchedulerIntervalMs?: number;
 }
 
 export interface AppContext {
@@ -177,6 +178,7 @@ export function createApp(config: ServerConfig): AppContext {
       adminToken: config.adminToken,
       adminUsername: config.adminUsername,
       adminPassword: config.adminPassword,
+      campaignSchedulerIntervalMs: 60_000,
     });
   }
 
@@ -217,6 +219,7 @@ export function createApp(config: ServerConfig): AppContext {
     adminToken: config.adminToken,
     adminUsername: config.adminUsername,
     adminPassword: config.adminPassword,
+    campaignSchedulerIntervalMs: 60_000,
   });
 }
 
@@ -301,7 +304,37 @@ function resolveVllmModelHint(input: {
 function createAppContextWithRepositories(repositories: Repositories, deps: AppDeps = {}): AppContext {
   const app = express();
   let closed = false;
+  let campaignScheduler: ReturnType<typeof setInterval> | null = null;
+  let isCampaignSchedulerRunning = false;
   const realtimeSessions = deps.realtimeSessions ?? createRealtimeSessionStore({ now: deps.now });
+
+  async function runDueCampaignSchedulerTick() {
+    if (isCampaignSchedulerRunning) {
+      return;
+    }
+
+    isCampaignSchedulerRunning = true;
+    try {
+      const campaignService = createCampaignService({
+        repositories,
+        now: deps.now,
+        initiateOutboundCall: deps.initiateOutboundCall ?? createDefaultOutboundCallInitiator({
+          repositories,
+          now: deps.now,
+          liveKit: deps.liveKit,
+        }),
+      });
+      await campaignService.launchDueCampaigns();
+    } finally {
+      isCampaignSchedulerRunning = false;
+    }
+  }
+
+  if (deps.campaignSchedulerIntervalMs && deps.campaignSchedulerIntervalMs > 0) {
+    campaignScheduler = setInterval(() => {
+      void runDueCampaignSchedulerTick();
+    }, deps.campaignSchedulerIntervalMs);
+  }
 
   app.set("trust proxy", true);
   app.use(cors());
@@ -1660,10 +1693,11 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
   app.post("/api/campaigns/build-renewal", (request, response) => {
     const agentId = String(request.body?.agentId ?? "");
     const withinDays = Number(request.body?.withinDays ?? 30);
+    const scheduledAt = isoDateOrNull(stringField(request.body?.scheduledAt));
     const agent = repositories.agents.get(agentId);
     if (!agent) { response.status(404).json({ code: "agent_not_found" }); return; }
     const campaignService = createCampaignService({ repositories });
-    const campaign = campaignService.buildRenewalCampaign({ agentId, withinDays });
+    const campaign = campaignService.buildRenewalCampaign({ agentId, withinDays, scheduledAt });
     response.status(201).json(campaign);
   });
 
@@ -1703,6 +1737,9 @@ function createAppContextWithRepositories(repositories: Repositories, deps: AppD
         return;
       }
 
+      if (campaignScheduler) {
+        clearInterval(campaignScheduler);
+      }
       repositories.close();
       closed = true;
     },

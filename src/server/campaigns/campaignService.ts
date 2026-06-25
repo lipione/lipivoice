@@ -169,14 +169,15 @@ export function createCampaignService(deps: CampaignServiceDeps) {
     notes?: string;
   }): Campaign {
     const nowStr = now().toISOString();
+    const scheduledAt = input.scheduledAt ?? null;
     const campaign = repositories.campaigns.save({
       id: `campaign_${nanoid(10)}`,
       name: input.name,
       type: input.type,
-      status: "draft",
+      status: scheduledAt ? "scheduled" : "draft",
       agentId: input.agentId,
       contacts: input.contacts,
-      scheduledAt: input.scheduledAt ?? null,
+      scheduledAt,
       completedAt: null,
       totalContacts: input.contacts.length,
       dialedCount: 0,
@@ -195,7 +196,7 @@ export function createCampaignService(deps: CampaignServiceDeps) {
         callId: null,
         status: "pending",
         attemptCount: 0,
-        scheduledAt: input.scheduledAt ?? nowStr,
+        scheduledAt: scheduledAt ?? nowStr,
         startedAt: null,
         endedAt: null,
         notes: "",
@@ -207,7 +208,7 @@ export function createCampaignService(deps: CampaignServiceDeps) {
     return campaign;
   }
 
-  function buildRenewalCampaign(input: { agentId: string; withinDays?: number }): Campaign {
+  function buildRenewalCampaign(input: { agentId: string; withinDays?: number; scheduledAt?: string | null }): Campaign {
     const policies = repositories.policies.findDueForRenewal(input.withinDays ?? 30);
     const contacts: CampaignContact[] = [];
 
@@ -234,14 +235,36 @@ export function createCampaignService(deps: CampaignServiceDeps) {
       type: "renewal_reminder",
       agentId: input.agentId,
       contacts,
+      scheduledAt: input.scheduledAt ?? null,
       notes: `Auto-generated for ${contacts.length} policies due in ${input.withinDays ?? 30} days`,
     });
+  }
+
+  async function launchDueCampaigns(): Promise<{ launchedCampaigns: number; launchedCalls: number; failedCalls: number }> {
+    const dueAt = now().toISOString();
+    let launchedCampaigns = 0;
+    let launchedCalls = 0;
+    let failedCalls = 0;
+
+    for (const campaign of repositories.campaigns.list()) {
+      if (campaign.status !== "scheduled" || !campaign.scheduledAt || campaign.scheduledAt > dueAt) {
+        continue;
+      }
+
+      const result = await launchCampaign(campaign.id);
+      launchedCampaigns += 1;
+      launchedCalls += result.launched;
+      failedCalls += result.failed;
+    }
+
+    return { launchedCampaigns, launchedCalls, failedCalls };
   }
 
   return {
     createCampaignFromContacts,
     buildRenewalCampaign,
     launchCampaign,
+    launchDueCampaigns,
     dialContact,
     buildContextSuffix,
   };
