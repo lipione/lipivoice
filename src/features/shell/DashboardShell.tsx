@@ -1,43 +1,27 @@
 import {
   Activity,
-  AudioWaveform,
   Bot,
-  Database,
   Headset,
-  FlaskConical,
-  Gauge,
-  Code2,
   ListChecks,
   LogOut,
   Megaphone,
-  Mic,
   Phone,
-  Route,
   Settings,
-  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import type * as React from "react";
 
 import { LipiVoiceLogo } from "@/components/brand/LipiVoiceLogo";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type PageId =
   | "overview"
   | "agents"
-  | "web-voice"
   | "phone"
   | "calls"
   | "campaigns"
   | "operations"
-  | "tools"
-  | "voice-lab"
-  | "knowledge"
-  | "evals"
-  | "usage"
-  | "sdk"
   | "settings";
 
 interface DashboardShellProps {
@@ -61,71 +45,42 @@ interface NavigationSection {
 export const pageLabels: Record<PageId, string> = {
   overview: "Overview",
   agents: "Agents",
-  "web-voice": "Web Voice",
   phone: "Phone Numbers",
   calls: "Calls",
   campaigns: "Campaigns",
   operations: "Operations",
-  tools: "Tools",
-  "voice-lab": "Voice Lab",
-  knowledge: "Knowledge Base",
-  evals: "Evals",
-  usage: "Usage",
-  sdk: "SDK Playground",
   settings: "Settings",
 };
 
 const navigationItems: NavigationItem[] = [
   { id: "overview", label: pageLabels.overview, icon: Activity },
-  { id: "web-voice", label: pageLabels["web-voice"], icon: Mic },
   { id: "calls", label: pageLabels.calls, icon: ListChecks },
-  { id: "campaigns", label: pageLabels.campaigns, icon: Megaphone },
   { id: "operations", label: pageLabels.operations, icon: Headset },
+  { id: "campaigns", label: pageLabels.campaigns, icon: Megaphone },
   { id: "agents", label: pageLabels.agents, icon: Bot },
   { id: "phone", label: pageLabels.phone, icon: Phone },
-  { id: "tools", label: pageLabels.tools, icon: Wrench },
-  { id: "voice-lab", label: pageLabels["voice-lab"], icon: AudioWaveform },
-  { id: "knowledge", label: pageLabels.knowledge, icon: Database },
-  { id: "evals", label: pageLabels.evals, icon: FlaskConical },
-  { id: "usage", label: pageLabels.usage, icon: Gauge },
-  { id: "sdk", label: pageLabels.sdk, icon: Code2 },
   { id: "settings", label: pageLabels.settings, icon: Settings },
 ];
 
 const navigationSections: NavigationSection[] = [
   {
-    label: "Desk",
-    items: navigationItems.filter((item) =>
-      ["overview", "web-voice", "calls", "campaigns", "operations"].includes(item.id),
-    ),
+    label: "Operate",
+    items: navigationItems.filter((item) => ["overview", "calls", "operations", "campaigns"].includes(item.id)),
   },
   {
-    label: "Setup",
-    items: navigationItems.filter((item) =>
-      ["agents", "phone", "tools", "knowledge", "voice-lab"].includes(item.id),
-    ),
-  },
-  {
-    label: "Review",
-    items: navigationItems.filter((item) => ["evals", "usage", "sdk", "settings"].includes(item.id)),
+    label: "Configure",
+    items: navigationItems.filter((item) => ["agents", "phone", "settings"].includes(item.id)),
   },
 ];
 
 const pageDescriptions: Record<PageId, string> = {
-  overview: "Live queues, runtime readiness, and renewal work at a glance.",
+  overview: "Runtime status and the work waiting for staff.",
   agents: "Tune prompts, voices, tools, and model routing.",
-  "web-voice": "Start browser calls and test the live agent path.",
-  phone: "Manage inbound and outbound numbers.",
-  calls: "Review active calls, transcripts, and simulation runs.",
-  campaigns: "Build and launch renewal or follow-up call batches.",
+  phone: "Manage SIP numbers and outbound calling setup.",
+  calls: "Start calls, review transcripts, and test conversations.",
+  campaigns: "Call renewal and follow-up batches.",
   operations: "Resolve customers, tickets, callbacks, and transfers.",
-  tools: "Connect business actions used by the voice agent.",
-  "voice-lab": "Benchmark and compare Nepali voice providers.",
-  knowledge: "Maintain reference material for agent answers.",
-  evals: "Run scripted checks against voice-agent behavior.",
-  usage: "Inspect capacity and activity totals.",
-  sdk: "Exercise API calls during integration work.",
-  settings: "Configure security, SIP, runtime, and workspace settings.",
+  settings: "Security, runtime, and workspace settings.",
 };
 
 export function DashboardShell({ activePage, onNavigate, onLogout, children }: DashboardShellProps) {
@@ -180,11 +135,6 @@ export function DashboardShell({ activePage, onNavigate, onLogout, children }: D
             <p className="mt-0.5 max-w-2xl truncate text-sm text-muted-foreground">{pageDescriptions[activePage]}</p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
-            <Badge variant="outline" className="gap-1.5">
-              <Route className="h-3.5 w-3.5" aria-hidden="true" />
-              Ops console
-            </Badge>
-            <Badge variant="success">Self-hosted stack</Badge>
             {onLogout ? (
               <Button type="button" variant="outline" className="h-8" onClick={onLogout}>
                 <LogOut aria-hidden="true" />

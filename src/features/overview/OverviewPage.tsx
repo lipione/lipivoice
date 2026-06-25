@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CalendarClock, Headset, ListChecks, Megaphone, PhoneCall, TicketCheck } from "lucide-react";
+import { Activity, Megaphone, PhoneCall, TicketCheck } from "lucide-react";
 
 import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
@@ -172,31 +172,7 @@ export function OverviewPage() {
         })}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]" aria-labelledby="current-runbook-title">
-        <Card>
-          <CardHeader>
-            <CardTitle id="current-runbook-title">Operator runbook</CardTitle>
-            <CardDescription>Use this order during a normal shift.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
-            <RunbookStep
-              icon={Headset}
-              title="Answer and qualify"
-              body="Start in Web Voice or Calls. Confirm name, phone, policy number, and reason."
-            />
-            <RunbookStep
-              icon={CalendarClock}
-              title="Route follow-up"
-              body="Use Operations to review tickets, callbacks, and transfers created during calls."
-            />
-            <RunbookStep
-              icon={Megaphone}
-              title="Renewal batch"
-              body="Build a renewal campaign from due policies, then launch once SIP is configured."
-            />
-          </CardContent>
-        </Card>
-
+      <section className="w-full max-w-xl">
         <Card>
           <CardHeader>
             <CardTitle>Queue mix</CardTitle>
@@ -211,26 +187,6 @@ export function OverviewPage() {
           </CardContent>
         </Card>
       </section>
-    </div>
-  );
-}
-
-function RunbookStep({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof ListChecks;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-background p-3">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
-        {title}
-      </div>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
     </div>
   );
 }

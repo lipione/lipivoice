@@ -8,33 +8,19 @@ import { Label } from "@/components/ui/label";
 import { AgentsPage } from "@/features/agents/AgentsPage";
 import { CallsPage } from "@/features/calls/CallsPage";
 import { CampaignsPage } from "@/features/campaigns/CampaignsPage";
-import { EvalsPage } from "@/features/evals/EvalsPage";
-import { KnowledgeBasePage } from "@/features/knowledge/KnowledgeBasePage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { OperationsPage } from "@/features/operations/OperationsPage";
 import { PhoneNumbersPage } from "@/features/phone/PhoneNumbersPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { DashboardShell, type PageId, pageLabels } from "@/features/shell/DashboardShell";
-import { SdkPlaygroundPage } from "@/features/sdk/SdkPlaygroundPage";
-import { ToolsPage } from "@/features/tools/ToolsPage";
-import { UsagePage } from "@/features/usage/UsagePage";
-import { VoiceLabPage } from "@/features/voice-lab/VoiceLabPage";
-import { VoiceConsolePage } from "@/features/voice/VoiceConsolePage";
 
 const pageIds = new Set<PageId>([
   "overview",
   "agents",
-  "web-voice",
   "phone",
   "calls",
   "campaigns",
   "operations",
-  "tools",
-  "voice-lab",
-  "knowledge",
-  "evals",
-  "usage",
-  "sdk",
   "settings",
 ]);
 
@@ -173,8 +159,6 @@ export function App() {
         <OverviewPage />
       ) : activePage === "agents" ? (
         <AgentsPage />
-      ) : activePage === "web-voice" ? (
-        <VoiceConsolePage />
       ) : activePage === "phone" ? (
         <PhoneNumbersPage />
       ) : activePage === "calls" ? (
@@ -183,18 +167,6 @@ export function App() {
         <CampaignsPage />
       ) : activePage === "operations" ? (
         <OperationsPage />
-      ) : activePage === "tools" ? (
-        <ToolsPage />
-      ) : activePage === "knowledge" ? (
-        <KnowledgeBasePage />
-      ) : activePage === "usage" ? (
-        <UsagePage />
-      ) : activePage === "sdk" ? (
-        <SdkPlaygroundPage />
-      ) : activePage === "evals" ? (
-        <EvalsPage />
-      ) : activePage === "voice-lab" ? (
-        <VoiceLabPage />
       ) : activePage === "settings" ? (
         <SettingsPage />
       ) : (

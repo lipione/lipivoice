@@ -8,18 +8,16 @@ describe("OverviewPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the runbook section unframed while preserving metric cards", () => {
+  it("keeps overview focused on live metrics and queue state", () => {
     stubDashboardFetch({
       runtimes: [],
     });
 
     render(<OverviewPage />);
 
-    const runbookSection = screen.getByRole("region", { name: "Operator runbook" });
-
-    expect(runbookSection).not.toHaveClass("border");
-    expect(runbookSection).not.toHaveClass("bg-card");
     expect(screen.getByLabelText("Overview metrics").querySelectorAll(".rounded-lg.border")).toHaveLength(4);
+    expect(screen.getByText("Queue mix")).toBeInTheDocument();
+    expect(screen.queryByText("Operator runbook")).not.toBeInTheDocument();
   });
 
   it("does not claim runtime readiness when speech runtimes are not configured", async () => {

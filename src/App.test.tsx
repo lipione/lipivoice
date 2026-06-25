@@ -89,6 +89,16 @@ describe("App routing", () => {
     expect(window.location.pathname).toBe("/voice/calls");
   });
 
+  it("falls back to overview for internal pages removed from the dashboard", async () => {
+    stubAuthenticatedApi();
+    window.history.pushState(null, "", "/voice/sdk");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "SDK Playground" })).not.toBeInTheDocument();
+  });
+
   it("logs in with username and password when admin auth is required", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
