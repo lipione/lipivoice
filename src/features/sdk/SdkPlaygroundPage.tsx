@@ -126,10 +126,14 @@ function createBrowserVoiceSnippet(baseUrl: string, agentId: string) {
 
   return `const baseUrl = "${normalizedBaseUrl}";
 const agentId = "${agentId}";
+const adminToken = "LIPIVOICE_ADMIN_TOKEN";
 
 const sessionResponse = await fetch("${normalizedBaseUrl}/api/realtime/session", {
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: {
+    "content-type": "application/json",
+    Authorization: "Bearer " + adminToken,
+  },
   body: JSON.stringify({ agentId: "${agentId}" }),
 });
 

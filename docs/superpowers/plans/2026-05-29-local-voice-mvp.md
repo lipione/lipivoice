@@ -10,7 +10,7 @@
 
 ---
 
-## Status Update - 2026-06-01
+## Status Update - 2026-06-02
 
 The phase 1 MVP is implemented and has been extended beyond the original local-only plan.
 
@@ -18,9 +18,12 @@ Completed implementation:
 
 - React/Vite dashboard, Express API, SQLite persistence, seeded agents/runtimes/calls/tools/voices/evals/usage, and shadcn-style owned UI primitives.
 - Local runtime preset for Ollama, whisper.cpp, Piper, and energy VAD.
-- Remote runtime preset for vLLM, `lipi-ml` faster-whisper STT, `lipi-ml` Piper TTS, and energy VAD.
+- Remote runtime preset for vLLM and Gemini LLM records, `lipi-ml` faster-whisper and Google STT records, Google TTS and `lipi-ml` Piper TTS records, and energy VAD.
 - Web Voice session creation and WebSocket orchestration with explicit runtime-not-configured states.
 - Voice Lab TTS generation through the configured TTS adapter.
+- Calls page runtime stack selectors for STT, LLM, and TTS voice.
+- API demo calls and simulated text turns with Nepali assistant text plus Google TTS audio for selected Google voices.
+- LiveKit web-call room creation, token issue, worker dispatch, browser WebSocket upgrade, and worker `listening` events.
 - Nepali TTS provider catalog through `GET /api/tts/providers`.
 - Provider benchmark route through `POST /api/tts/benchmark`.
 - Manifest-backed remote model catalog via `LIPIVOICE_TTS_MODEL_MANIFEST`.
@@ -31,13 +34,13 @@ Important files added after the original plan:
 - `src/domain/ttsProviders.ts`: provider definitions for Google Cloud TTS, Indic Parler TTS, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
 - `src/server/runtimes/ttsModelCatalog.ts`: manifest-backed health and license checks for downloaded TTS candidates.
 - `src/server/runtimes/googleCloudTts.ts`: Google service-account auth, voice health check, and MP3 synthesis adapter.
-- `docker-compose.remote.yml`: remote Docker deployment with host networking, model catalog mount, and Google secret mount.
+- `docker-compose.remote.yml`: remote Docker deployment for `lipiv-app`, `lipiv-livekit`, and `lipiv-livekit-worker`, with model catalog and Google secret mounts.
 
 Current remote provider status:
 
 | Provider | Status | Notes |
 | --- | --- | --- |
-| Google Cloud TTS | Configured for Gemini-TTS Preview, IAM blocked | Uses `ne-NP`, `gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`; remote health is `healthy`, but benchmark returns `provider_synthesis_failed` until the service account receives `aiplatform.endpoints.predict`. |
+| Google Cloud TTS | Configured and generating for simulated turns | Uses `ne-NP`, `gemini-2.5-flash-tts`, and `GOOGLE_TTS_VOICE_NE=Kore`; simulated call turns can return MP3 audio through the selected Google voice. |
 | Indic Parler TTS | `license_required` | Requires Hugging Face token or accepted terms before model files can be used. |
 | OmniVoice | Catalog `healthy`, benchmark unavailable | Model files are present, but inference is not connected, so benchmark returns `provider_adapter_not_connected`. |
 | Chatterbox Nepali | `license_required` | Nepali-specific model is gated and still needs accepted access. |
@@ -47,9 +50,9 @@ Remaining follow-up work:
 
 - Implement real inference adapters for OmniVoice and Indic Parler TTS.
 - Unlock and wire Chatterbox Nepali after gated model access is accepted.
-- Grant the Google service account `roles/aiplatform.user` or equivalent, then re-run the remote Google Cloud TTS benchmark.
+- Keep the Google service accounts scoped to Vertex AI and Speech/TTS permissions, then verify live browser calls publish Google TTS audio through LiveKit.
 - Train or package a stable custom Nepali Coqui/Piper voice for production-quality output.
-- Add Google STT only if needed; credentials can be mounted, but no Google STT adapter exists now.
+- Complete the LiveKit browser conversation loop so Google STT final transcripts, Gemini assistant text, and Google TTS audio are emitted reliably during a live web call.
 - Expose richer provider failure reasons in the Voice Lab UI if operator debugging needs more detail than the current status/code.
 
 ## Scope

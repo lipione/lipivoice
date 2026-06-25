@@ -1,0 +1,90 @@
+services:
+  livekit:
+    depends_on:
+      - sip-redis
+    command:
+      [
+        "/livekit-server",
+        "--keys",
+        "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}",
+        "--bind",
+        "0.0.0.0",
+        "--node-ip",
+        "${LIVEKIT_NODE_IP:-202.51.2.50}",
+        "--udp-port",
+        "443",
+        "--turn.enabled",
+        "--turn.tls_port",
+        "8080",
+        "--turn.domain",
+        "${LIVEKIT_TURN_DOMAIN:-ai.silverlining.com.np}",
+        "--turn.relay_range_start",
+        "30000",
+        "--turn.relay_range_end",
+        "30002",
+        "--turn.cert_file",
+        "/etc/letsencrypt/live/ai.silverlining.com.np/fullchain.pem",
+        "--turn.key_file",
+        "/etc/letsencrypt/live/ai.silverlining.com.np/privkey.pem",
+        "--redis-host",
+        "lipiv-sip-redis:6379",
+      ]
+
+  sip-redis:
+    profiles:
+      - sip
+    image: redis:7-alpine
+    container_name: lipiv-sip-redis
+    networks:
+      - bankai_default
+    ports:
+      - "${LIVEKIT_SIP_REDIS_BIND:-127.0.0.1}:${LIVEKIT_SIP_REDIS_PORT:-6379}:6379/tcp"
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - ./data/sip-redis:/data
+    restart: unless-stopped
+
+  livekit-sip:
+    profiles:
+      - sip
+    image: livekit/sip:latest
+    container_name: lipiv-livekit-sip
+    network_mode: host
+    depends_on:
+      - sip-redis
+      - livekit
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+        ws_url: ws://127.0.0.1:7880
+        redis:
+          address: 127.0.0.1:${LIVEKIT_SIP_REDIS_PORT:-6379}
+        sip_port: ${LIVEKIT_SIP_PORT:-5060}
+        rtp_port: ${LIVEKIT_SIP_RTP_PORTS:-10000-20000}
+        use_external_ip: true
+        logging:
+          level: ${LIVEKIT_SIP_LOG_LEVEL:-info}
+    restart: unless-stopped
+
+  asterisk:
+    profiles:
+      - sip
+    build:
+      context: .
+      dockerfile: services/asterisk/Dockerfile
+    image: lipiv-asterisk:latest
+    container_name: lipiv-asterisk
+    network_mode: host
+    environment:
+      ASTERISK_SIP_BIND_PORT: ${ASTERISK_SIP_BIND_PORT:-5062}
+      LIPIVOICE_DB_PATH: /app/data/lipivoice.sqlite
+      NTC_SIP_SERVER: ${NTC_SIP_SERVER:-ims.ntc.net.np}
+      NTC_OUTBOUND_PROXY: ${NTC_OUTBOUND_PROXY:-202.70.74.178:5060}
+      NTC_SIP_USERNAME: ${NTC_SIP_USERNAME:-}
+      NTC_SIP_AUTH_USERNAME: ${NTC_SIP_AUTH_USERNAME:-}
+      NTC_SIP_PASSWORD: ${NTC_SIP_PASSWORD:-}
+      NTC_FROM_NUMBER: ${NTC_FROM_NUMBER:-}
+    volumes:
+      - ./data:/app/data:ro
+    restart: unless-stopped

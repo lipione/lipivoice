@@ -18,9 +18,14 @@ export const runtimeKindSchema = z.enum(["llm", "stt", "tts", "vad", "embedding"
 export const runtimeAdapterSchema = z.enum([
   "ollama",
   "vllm",
+  "gemini",
   "whisper_cpp",
   "faster_whisper",
+  "google_stt",
   "piper",
+  "piper_http",
+  "coqui_http",
+  "fastpitch_http",
   "google_tts",
   "indic_parler",
   "omnivoice",
@@ -190,6 +195,60 @@ export const phoneNumberSchema = z.object({
   updatedAt: isoDateSchema,
 });
 
+export const customerSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  phoneNumber: z.string().min(1),
+  email: z.string().email().nullable(),
+  address: z.string(),
+  preferredLanguage: z.string().min(2),
+  notes: z.string(),
+  source: z.enum(["voice_call", "manual", "import"]),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+  lastCallId: z.string().min(1).nullable(),
+});
+
+export const ticketSchema = z.object({
+  id: z.string().min(1),
+  customerId: z.string().min(1).nullable(),
+  callId: z.string().min(1).nullable(),
+  type: z.enum(["claim", "policy_question", "billing", "complaint", "callback", "other"]),
+  status: z.enum(["open", "in_progress", "waiting_customer", "resolved", "closed"]),
+  priority: z.enum(["normal", "high", "urgent"]),
+  subject: z.string().min(1),
+  description: z.string(),
+  source: z.enum(["voice_call", "manual"]),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const appointmentSchema = z.object({
+  id: z.string().min(1),
+  customerId: z.string().min(1).nullable(),
+  callId: z.string().min(1).nullable(),
+  callerName: z.string().min(1),
+  phoneNumber: z.string().min(1),
+  scheduledAt: isoDateSchema.nullable(),
+  preferredTime: z.string(),
+  reason: z.string(),
+  status: z.enum(["scheduled", "completed", "cancelled", "missed"]),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const transferRecordSchema = z.object({
+  id: z.string().min(1),
+  customerId: z.string().min(1).nullable(),
+  callId: z.string().min(1).nullable(),
+  department: z.string().min(1),
+  reason: z.string(),
+  status: z.enum(["queued", "completed", "failed", "cancelled"]),
+  warmTransferAvailable: z.boolean(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
 export const knowledgeBaseSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -230,6 +289,29 @@ export const workspaceSettingsSchema = z.object({
   recordingRetentionDays: z.number().int().min(1).max(3650),
   auditLogRetentionDays: z.number().int().min(1).max(3650),
   realtimeSessionTtlSeconds: z.number().int().min(15).max(3600),
+  sipTrunk: z.object({
+    enabled: z.boolean(),
+    provider: z.string(),
+    mode: z.enum(["direct", "asterisk"]),
+    sipServer: z.string(),
+    outboundProxy: z.string(),
+    domain: z.string(),
+    username: z.string(),
+    authUsername: z.string(),
+    fromNumber: z.string(),
+    transport: z.enum(["udp", "tcp", "tls"]),
+  }).default({
+    enabled: false,
+    provider: "",
+    mode: "asterisk",
+    sipServer: "",
+    outboundProxy: "",
+    domain: "",
+    username: "",
+    authUsername: "",
+    fromNumber: "",
+    transport: "udp",
+  }),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
@@ -298,4 +380,71 @@ export const callEventSchema = z.object({
   actor: z.enum(["system", "user", "assistant", "tool"]),
   payload: z.record(z.string(), z.unknown()),
   severity: z.enum(["info", "warning", "error"]),
+});
+
+export const policyStatusSchema = z.enum(["active", "expired", "pending", "cancelled", "lapsed"]);
+export const policyTypeSchema = z.enum([
+  "motor", "property", "health", "life", "marine", "engineering", "agriculture", "micro", "miscellaneous",
+]);
+
+export const policySchema = z.object({
+  id: z.string().min(1),
+  customerId: z.string().min(1),
+  policyNumber: z.string().min(1),
+  type: policyTypeSchema,
+  status: policyStatusSchema,
+  insuredName: z.string(),
+  premium: z.number().min(0),
+  sumInsured: z.number().min(0),
+  startDate: z.string(),
+  endDate: z.string(),
+  renewalDueDate: z.string().nullable(),
+  claimCount: z.number().int().min(0),
+  notes: z.string(),
+  cmsId: z.string().nullable(),
+  cmsSource: z.string().nullable(),
+  syncedAt: z.string().nullable(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+const campaignContactSchema = z.object({
+  customerId: z.string().min(1),
+  phoneNumber: z.string().min(1),
+  name: z.string().min(1),
+  policyId: z.string().nullable().optional(),
+  contextData: z.record(z.string(), z.string()).optional(),
+});
+
+export const campaignSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(["renewal_reminder", "claim_followup", "survey", "account_update", "custom"]),
+  status: z.enum(["draft", "scheduled", "running", "paused", "completed", "failed"]),
+  agentId: z.string().min(1),
+  contacts: z.array(campaignContactSchema),
+  scheduledAt: isoDateSchema.nullable(),
+  completedAt: isoDateSchema.nullable(),
+  totalContacts: z.number().int().min(0),
+  dialedCount: z.number().int().min(0),
+  answeredCount: z.number().int().min(0),
+  failedCount: z.number().int().min(0),
+  notes: z.string(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+});
+
+export const campaignRunSchema = z.object({
+  id: z.string().min(1),
+  campaignId: z.string().min(1),
+  customerId: z.string().min(1),
+  callId: z.string().nullable(),
+  status: z.enum(["pending", "dialing", "connected", "completed", "failed", "no_answer"]),
+  attemptCount: z.number().int().min(0),
+  scheduledAt: isoDateSchema,
+  startedAt: isoDateSchema.nullable(),
+  endedAt: isoDateSchema.nullable(),
+  notes: z.string(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
 });

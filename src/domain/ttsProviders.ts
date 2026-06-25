@@ -20,6 +20,7 @@ interface ProviderDefinition {
   capabilities: string[];
   hardwareHints: string[];
   fallbackHealthStatus: RuntimeHealthStatus;
+  preferredVoiceId?: string;
 }
 
 interface RuntimeOverlay {
@@ -29,30 +30,60 @@ interface RuntimeOverlay {
 
 const providerDefinitions: ProviderDefinition[] = [
   {
-    id: "google_cloud_tts",
-    name: "Google Cloud TTS",
-    role: "cloud fallback for Nepali TTS experiments",
-    access: "cloud",
-    adapter: "google_tts",
-    sourceUrl: "https://cloud.google.com/text-to-speech/docs",
-    license: "Google Cloud service terms",
-    languageSupport: ["ne-NP", "multilingual"],
-    capabilities: ["managed TTS", "service-account auth", "cloud fallback"],
-    hardwareHints: ["cloud", "service-account"],
+    id: "piper_http_tts",
+    name: "Piper HTTP TTS",
+    role: "fast self-hosted Nepali TTS",
+    access: "open",
+    adapter: "piper_http",
+    sourceUrl: "https://github.com/rhasspy/piper",
+    license: "MIT",
+    languageSupport: ["ne-NP", "en-US"],
+    capabilities: ["fast CPU inference", "custom ONNX voices", "HTTP API"],
+    hardwareHints: ["cpu", "local", "http"],
     fallbackHealthStatus: "missing_model",
+    preferredVoiceId: "voice_piper_ne_sita",
+  },
+  {
+    id: "coqui_xtts",
+    name: "Coqui XTTS",
+    role: "expressive multilingual TTS with voice cloning",
+    access: "open",
+    adapter: "coqui_http",
+    sourceUrl: "https://github.com/coqui-ai/TTS",
+    license: "Coqui Public Model License",
+    languageSupport: ["ne", "en", "multilingual"],
+    capabilities: ["multilingual", "voice cloning", "expressive"],
+    hardwareHints: ["gpu", "http"],
+    fallbackHealthStatus: "missing_model",
+    preferredVoiceId: "voice_coqui_ne_anju",
+  },
+  {
+    id: "fastpitch_tts",
+    name: "FastPitch TTS",
+    role: "GPU-accelerated Nepali TTS",
+    access: "open",
+    adapter: "fastpitch_http",
+    sourceUrl: "https://github.com/NVIDIA/NeMo",
+    license: "Apache-2.0",
+    languageSupport: ["ne-NP"],
+    capabilities: ["GPU-accelerated", "multi-speaker", "fine-tunable"],
+    hardwareHints: ["gpu", "http"],
+    fallbackHealthStatus: "missing_model",
+    preferredVoiceId: "voice_fastpitch_ne_nabin",
   },
   {
     id: "indic_parler_tts",
-    name: "Indic Parler TTS",
-    role: "best proven Nepali baseline",
+    name: "Indic Parler Nepali",
+    role: "Nepali fine-tuned Parler-TTS evaluation candidate",
     access: "open",
     adapter: "indic_parler",
-    sourceUrl: "https://huggingface.co/ai4bharat/indic-parler-tts",
-    license: "Apache-2.0",
-    languageSupport: ["ne-NP", "hi-IN", "bn-IN", "ta-IN", "te-IN", "mr-IN"],
-    capabilities: ["Indic-language TTS", "speaker description control", "Nepali baseline"],
-    hardwareHints: ["remote", "gpu"],
+    sourceUrl: "https://huggingface.co/milanakdj/indic-parler-tts-nepali-finetuned-dgx-v9-cosine",
+    license: "license-unconfirmed",
+    languageSupport: ["ne-NP"],
+    capabilities: ["Nepali fine-tune", "speaker description control", "44.1 kHz output"],
+    hardwareHints: ["remote", "gpu", "hf-model", "evaluation"],
     fallbackHealthStatus: "missing_model",
+    preferredVoiceId: "voice_indic_parler_ne_amrita",
   },
   {
     id: "omnivoice",
@@ -82,7 +113,7 @@ const providerDefinitions: ProviderDefinition[] = [
   },
   {
     id: "coqui_piper_vits",
-    name: "Coqui VITS / Piper-VITS",
+    name: "LipiVoice Studio",
     role: "stable custom Nepali voice path",
     access: "custom_training",
     adapter: "piper",
@@ -103,7 +134,8 @@ export function listTtsProviders(input: {
   return providerDefinitions.map((definition) => {
     const runtime = findRuntimeForProvider(definition, input.runtimes);
     const voice = runtime
-      ? input.voices.find((candidate) => candidate.runtimeId === runtime.id && candidate.language.startsWith("ne")) ??
+      ? input.voices.find((candidate) => candidate.id === definition.preferredVoiceId && candidate.runtimeId === runtime.id) ??
+        input.voices.find((candidate) => candidate.runtimeId === runtime.id && candidate.language.startsWith("ne")) ??
         input.voices.find((candidate) => candidate.runtimeId === runtime.id) ??
         null
       : null;
@@ -140,7 +172,9 @@ function findRuntimeForProvider(definition: ProviderDefinition, runtimes: ModelR
     return runtimes.find((runtime) => runtime.kind === "tts" && runtime.adapter === "piper") ?? null;
   }
 
-  return runtimes.find((runtime) => runtime.kind === "tts" && runtime.adapter === definition.adapter) ?? null;
+  return (
+    runtimes.find((runtime) => runtime.kind === "tts" && runtime.adapter === definition.adapter) ?? null
+  );
 }
 
 function healthConfiguredState(healthStatus: RuntimeHealthStatus): ConfiguredState {

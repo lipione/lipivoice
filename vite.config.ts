@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react()],
   server: {
     proxy: {
@@ -23,5 +24,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
     testTimeout: 10000,
+    include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}"],
+    exclude: ["**/.worktrees/**", "**/node_modules/**"],
   },
 });

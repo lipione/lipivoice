@@ -84,7 +84,7 @@ describe("domain defaults", () => {
     }
   });
 
-  it("seeds a remote workspace using vLLM and lipi-ml runtimes", () => {
+  it("seeds a remote workspace using Lipi-branded runtimes", () => {
     const workspace = createRemoteWorkspace({
       now: "2026-05-29T00:00:00.000Z",
       vllmEndpoint: "http://127.0.0.1:8002/v1",
@@ -93,12 +93,53 @@ describe("domain defaults", () => {
     });
 
     expect(workspace.agents[0]).toMatchObject({
+      name: "Sarita",
+      greeting:
+        "नमस्ते, सगरमाथा लुम्बिनी इन्स्योरेन्समा स्वागत छ। म सरिता बोल्दैछु, म कसरी सहयोग गर्न सक्छु?",
+      language: "ne",
       modelRuntimeId: "runtime_vllm",
       modelAssetId: "model_vllm_remote",
       transcriberRuntimeId: "runtime_lipi_ml_stt",
-      voiceId: "voice_lipi_ml_en",
+      voiceId: "voice_lipi_ml_ne",
+      knowledgeBaseIds: ["kb_reception_faq"],
       deploymentState: "ready",
     });
+    expect(workspace.agents[0]?.systemPrompt).toContain("warm Nepali front-desk receptionist");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Speak Nepali in Devanagari by default");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Sagarmatha Lumbini Insurance Company Limited");
+    expect(workspace.agents[0]?.systemPrompt).toContain("pronounce it as one word");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Do not spell it letter by letter");
+    expect(workspace.agents[0]?.systemPrompt).toContain("property, motor, marine, engineering, aviation, agriculture, micro, and miscellaneous");
+    expect(workspace.agents[0]?.systemPrompt).toContain("customer.service@salico.com.np");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Ask one question at a time");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Silently remember the caller's name");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Use हस् or हजुर for acknowledgement");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Do not say ठीक छ");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Use natural Nepali phrasing");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Only handle Nepali, English, or natural Nepali-English mixed speech");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Do not infer an insurance product from Newari");
+    expect(workspace.agents[0]?.systemPrompt).toContain("पति पार्स तो इंचरेंस गरिक्प");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Avoid Hindi-style or Indian call-center intonation");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Never read them as a full amount value");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Do not ask how you can help if the caller already stated the purpose.");
+    expect(workspace.agents[0]?.systemPrompt).toContain("Do not invent premiums, coverage decisions, claim approvals, policy status, or legal advice.");
+    expect(workspace.agents[0]?.systemPrompt).toContain("claim approvals");
+
+    expect(workspace.tools.map((tool) => tool.id)).toEqual(
+      expect.arrayContaining([
+        "tool_collect_callback",
+        "tool_claim_intake",
+        "tool_document_request",
+        "tool_office_hours",
+      ]),
+    );
+    expect(workspace.evals.map((evaluation) => evaluation.id)).toEqual(
+      expect.arrayContaining([
+        "eval_nepali_reception_greeting",
+        "eval_claim_no_approval",
+        "eval_callback_collection",
+      ]),
+    );
     expect(workspace.modelRuntimes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -118,26 +159,48 @@ describe("domain defaults", () => {
           endpoint: "http://127.0.0.1:5001/tts",
         }),
         expect.objectContaining({
-          id: "runtime_google_tts",
-          adapter: "google_tts",
-          endpoint: "https://texttospeech.googleapis.com/v1/text:synthesize",
+          id: "runtime_coqui_http",
+          adapter: "coqui_http",
+        }),
+        expect.objectContaining({
+          id: "runtime_fastpitch_http",
+          adapter: "fastpitch_http",
+        }),
+        expect.objectContaining({
+          id: "runtime_indic_parler",
+          adapter: "indic_parler",
+          endpoint: "http://127.0.0.1:5010",
+          configuredState: "not_configured",
         }),
       ]),
     );
     expect(workspace.modelAssets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "model_vllm_remote", name: "gemma-4" }),
+        expect.objectContaining({ id: "model_vllm_remote", name: "LipiCore Realtime" }),
         expect.objectContaining({ id: "model_lipi_ml_whisper_large_v3" }),
         expect.objectContaining({ id: "model_lipi_ml_piper" }),
-        expect.objectContaining({ id: "model_google_tts_ne" }),
+        expect.objectContaining({ id: "model_coqui_xtts_ne" }),
+        expect.objectContaining({
+          id: "model_indic_parler_ne_finetuned",
+          pathOrTag: "milanakdj/indic-parler-tts-nepali-finetuned-dgx-v9-cosine",
+        }),
       ]),
     );
     expect(workspace.voices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "voice_lipi_ml_en", language: "en-US" }),
         expect.objectContaining({ id: "voice_lipi_ml_ne", language: "ne-NP" }),
-        expect.objectContaining({ id: "voice_google_tts_ne", language: "ne-NP" }),
+        expect.objectContaining({ id: "voice_piper_ne_sita", language: "ne-NP" }),
+        expect.objectContaining({
+          id: "voice_indic_parler_ne_amrita",
+          runtimeId: "runtime_indic_parler",
+          language: "ne-NP",
+        }),
       ]),
     );
+    expect(workspace.settings).toMatchObject({
+      publicBaseUrl: "https://ai.silverlining.com.np/voice",
+      allowedOrigins: ["https://ai.silverlining.com.np"],
+    });
   });
 });

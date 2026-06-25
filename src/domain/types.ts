@@ -2,9 +2,14 @@ export type RuntimeKind = "llm" | "stt" | "tts" | "vad" | "embedding";
 export type RuntimeAdapter =
   | "ollama"
   | "vllm"
+  | "gemini"
   | "whisper_cpp"
   | "faster_whisper"
+  | "google_stt"
   | "piper"
+  | "piper_http"
+  | "coqui_http"
+  | "fastpitch_http"
   | "google_tts"
   | "indic_parler"
   | "omnivoice"
@@ -203,6 +208,70 @@ export interface PhoneNumber {
   updatedAt: string;
 }
 
+export type CustomerSource = "voice_call" | "manual" | "import";
+
+export interface Customer {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  email: string | null;
+  address: string;
+  preferredLanguage: string;
+  notes: string;
+  source: CustomerSource;
+  createdAt: string;
+  updatedAt: string;
+  lastCallId: string | null;
+}
+
+export type TicketType = "claim" | "policy_question" | "billing" | "complaint" | "callback" | "other";
+export type TicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
+export type TicketPriority = "normal" | "high" | "urgent";
+
+export interface Ticket {
+  id: string;
+  customerId: string | null;
+  callId: string | null;
+  type: TicketType;
+  status: TicketStatus;
+  priority: TicketPriority;
+  subject: string;
+  description: string;
+  source: "voice_call" | "manual";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AppointmentStatus = "scheduled" | "completed" | "cancelled" | "missed";
+
+export interface Appointment {
+  id: string;
+  customerId: string | null;
+  callId: string | null;
+  callerName: string;
+  phoneNumber: string;
+  scheduledAt: string | null;
+  preferredTime: string;
+  reason: string;
+  status: AppointmentStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TransferStatus = "queued" | "completed" | "failed" | "cancelled";
+
+export interface TransferRecord {
+  id: string;
+  customerId: string | null;
+  callId: string | null;
+  department: string;
+  reason: string;
+  status: TransferStatus;
+  warmTransferAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface KnowledgeBase {
   id: string;
   name: string;
@@ -243,6 +312,22 @@ export interface UsageSummary {
   knowledgeDocuments: number;
 }
 
+export type SipTrunkMode = "direct" | "asterisk";
+export type SipTransport = "udp" | "tcp" | "tls";
+
+export interface SipTrunkSettings {
+  enabled: boolean;
+  provider: string;
+  mode: SipTrunkMode;
+  sipServer: string;
+  outboundProxy: string;
+  domain: string;
+  username: string;
+  authUsername: string;
+  fromNumber: string;
+  transport: SipTransport;
+}
+
 export interface WorkspaceSettings {
   id: "workspace_settings";
   workspaceName: string;
@@ -253,6 +338,7 @@ export interface WorkspaceSettings {
   recordingRetentionDays: number;
   auditLogRetentionDays: number;
   realtimeSessionTtlSeconds: number;
+  sipTrunk: SipTrunkSettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -321,4 +407,96 @@ export interface CallEvent {
   actor: "system" | "user" | "assistant" | "tool";
   payload: Record<string, unknown>;
   severity: "info" | "warning" | "error";
+}
+
+export type PolicyStatus = "active" | "expired" | "pending" | "cancelled" | "lapsed";
+export type PolicyType =
+  | "motor"
+  | "property"
+  | "health"
+  | "life"
+  | "marine"
+  | "engineering"
+  | "agriculture"
+  | "micro"
+  | "miscellaneous";
+
+export interface Policy {
+  id: string;
+  customerId: string;
+  policyNumber: string;
+  type: PolicyType;
+  status: PolicyStatus;
+  insuredName: string;
+  premium: number;
+  sumInsured: number;
+  startDate: string;
+  endDate: string;
+  renewalDueDate: string | null;
+  claimCount: number;
+  notes: string;
+  cmsId: string | null;
+  cmsSource: string | null;
+  syncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CampaignStatus = "draft" | "scheduled" | "running" | "paused" | "completed" | "failed";
+export type CampaignType = "renewal_reminder" | "claim_followup" | "survey" | "account_update" | "custom";
+
+export interface CampaignContact {
+  customerId: string;
+  phoneNumber: string;
+  name: string;
+  policyId?: string | null;
+  contextData?: Record<string, string>;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  type: CampaignType;
+  status: CampaignStatus;
+  agentId: string;
+  contacts: CampaignContact[];
+  scheduledAt: string | null;
+  completedAt: string | null;
+  totalContacts: number;
+  dialedCount: number;
+  answeredCount: number;
+  failedCount: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CampaignRunStatus = "pending" | "dialing" | "connected" | "completed" | "failed" | "no_answer";
+
+export interface CampaignRun {
+  id: string;
+  campaignId: string;
+  customerId: string;
+  callId: string | null;
+  status: CampaignRunStatus;
+  attemptCount: number;
+  scheduledAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CmsConfig {
+  enabled: boolean;
+  baseUrl: string;
+  authMode: "none" | "bearer" | "api_key" | "basic";
+  authValue: string;
+  customerEndpoint: string;
+  policyEndpoint: string;
+  syncIntervalMinutes: number;
+  lastSyncedAt: string | null;
+  lastSyncStatus: "idle" | "running" | "success" | "failed";
+  lastSyncError: string | null;
 }

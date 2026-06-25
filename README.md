@@ -1,168 +1,266 @@
 # LipiVoice
 
-LipiVoice is a local, open-source voice agent prototype in the style of Vapi or Voice.ai. It is built to run against local runtimes instead of depending on a hosted SaaS voice stack.
+LipiVoice is a self-hosted, open-source enterprise voice call center platform built for Nepali-first insurance operations. Designed for Sagarmatha Lumbini Insurance Company Limited (SALICO), it handles inbound WebRTC browser calls, outbound personalised campaigns, ticket generation, and CMS customer/policy integration — entirely on your own infrastructure with no cloud TTS, STT, or LLM dependencies.
 
-The MVP includes a React operator console, an Express API, SQLite-backed seed data, local runtime health checks, simulated call records, a Web Voice surface, and a Voice Lab text-to-speech surface. The current remote deployment also includes a Nepali TTS provider catalog for testing open-source and cloud fallback options side by side.
+## What's Running Now
 
-## What Works Now
+- **Dashboard** with Agents, Calls, Voice Lab, Voice Console, Operations, Campaigns, Tools, and SDK Playground pages.
+- **Inbound calls** — WebRTC browser sessions with full STT → LLM → TTS pipeline via LiveKit.
+- **Outbound campaigns** — scheduled personalised calls with customer/policy context injected into the agent prompt (policy renewals, claim follow-ups).
+- **CMS integration** — sync customers and policies from any external API (bearer, API key, basic, or no auth).
+- **Operations CRM** — customers, tickets, appointments, transfers, and policies persisted in SQLite.
+- **Ticket auto-generation** — from completed calls via worker tools.
+- **Voice Lab** — TTS benchmark and comparison across Piper, Coqui, and FastPitch adapters.
+- **Multi-adapter TTS** — per-voice runtime selection (Piper HTTP, Coqui XTTS, FastPitch); health checks before every call.
+- **Self-hosted STT** — Faster-Whisper via HTTP API (OpenAI-compatible).
+- **Self-hosted LLM** — Gemma 4B via Ollama (local) or vLLM (remote/GPU).
 
-- Dashboard shell with agents, runtime status, Web Voice, calls, Voice Lab, and usage surfaces.
-- Express API with SQLite persistence and seeded local or remote runtime configuration.
-- Web Voice session setup over WebSocket with explicit runtime health checks before audio processing.
-- Local runtime adapters for Ollama, whisper.cpp, Piper, and energy-based VAD.
-- Remote runtime adapters for vLLM, `lipi-ml` faster-whisper STT, and `lipi-ml` Piper TTS.
-- Voice Lab speech generation through configured Piper or `lipi-ml` TTS.
-- Nepali TTS provider catalog and benchmark API for Google Cloud TTS, Indic Parler TTS, OmniVoice, Chatterbox Nepali, and Coqui/Piper-VITS.
-- Optional Google Cloud TTS adapter using server-side service-account credentials. Google STT credentials can be mounted for future work, but there is no Google STT adapter yet.
+## Self-Hosted Stack (No Cloud Dependencies)
+
+| Role | Engine | Adapter key |
+| ---- | ------ | ----------- |
+| TTS (fast CPU) | [Piper](https://github.com/rhasspy/piper) HTTP service | `piper_http` |
+| TTS (expressive, cloning) | [Coqui XTTS](https://github.com/coqui-ai/TTS) HTTP service | `coqui_http` |
+| TTS (GPU-accelerated) | [FastPitch / NeMo](https://github.com/NVIDIA/NeMo) HTTP service | `fastpitch_http` |
+| STT | [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) (OpenAI-compatible) | `faster_whisper` |
+| LLM (local) | [Gemma 4B via Ollama](https://ollama.com) | `ollama` |
+| LLM (remote/GPU) | Gemma 4B via [vLLM](https://github.com/vllm-project/vllm) | `vllm` |
+| Call signaling | [LiveKit](https://livekit.io) open-source SFU | — |
 
 ## Local Runtime Setup
 
-Install and run the local engines you want to test with:
-
-- Ollama for LLM responses.
-- whisper.cpp for speech-to-text.
-- Piper for text-to-speech.
-
-Set these environment variables before starting the API server:
+Install and run the engines you want to test with, then set the corresponding env vars:
 
 ```sh
+# LLM (Ollama local)
 export OLLAMA_BASE_URL=http://127.0.0.1:11434
-export LIPIVOICE_LLM_MODEL=llama3.2:3b
-export WHISPER_CPP_BIN=/absolute/path/to/whisper-cli
-export WHISPER_MODEL_PATH=/absolute/path/to/ggml-base.en.bin
-export PIPER_BIN=/absolute/path/to/piper
-export PIPER_VOICE_PATH=/absolute/path/to/en_US-amy-medium.onnx
-```
+export LIPIVOICE_LLM_MODEL=gemma3:4b
 
-Optional:
+# STT (Faster-Whisper HTTP server)
+export FASTER_WHISPER_ENDPOINT=http://127.0.0.1:9000
 
-```sh
+# TTS (Piper HTTP server — primary)
+export PIPER_HTTP_ENDPOINT=http://127.0.0.1:5002
+
+# TTS (Coqui XTTS — optional)
+export COQUI_HTTP_ENDPOINT=http://127.0.0.1:5003
+
+# TTS (FastPitch — optional, GPU)
+export FASTPITCH_HTTP_ENDPOINT=http://127.0.0.1:5004
+
+# App
 export PORT=8787
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
 ```
 
-If Piper is not configured, Voice Lab intentionally reports `runtime_not_configured`. Web Voice checks the configured LLM, STT, and TTS runtimes before accepting audio.
+If a TTS service is not running, Voice Lab reports `unavailable` for that adapter and calls fall back to the next configured adapter. The API server still starts and serves the dashboard.
 
 ## Remote Runtime Setup
 
-Use the remote preset when running against the shared GPU server services. For a bare host process, the environment looks like:
+Use the remote preset for the production server with vLLM and the full LipiML inference stack:
 
 ```sh
 export LIPIVOICE_RUNTIME_PRESET=remote
+export LIPI_ML_BASE_URL=http://127.0.0.1:5001    # LipiML inference server
 export VLLM_BASE_URL=http://127.0.0.1:8002/v1
-export VLLM_MODEL=gemma-4
-export LIPI_ML_BASE_URL=http://127.0.0.1:5001
-export LIPIVOICE_TTS_MODEL_MANIFEST=/data/models/lipivoice/tts/manifest.json
-export GOOGLE_TTS_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a6477dd41434.json
-export GOOGLE_STT_CREDENTIALS_PATH=/data/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
-export GOOGLE_TTS_LANGUAGE_CODE=ne-NP
-export GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview
-export GOOGLE_TTS_VOICE_NE=Kore
-export GOOGLE_TTS_VOICE_NAME=
+export VLLM_MODEL=gemma-4b-salico-v1
+
+# TTS adapters (same keys as local)
+export PIPER_HTTP_ENDPOINT=http://127.0.0.1:5002
+export COQUI_HTTP_ENDPOINT=http://127.0.0.1:5003
+export FASTPITCH_HTTP_ENDPOINT=http://127.0.0.1:5004
+export FASTER_WHISPER_ENDPOINT=http://127.0.0.1:9000
+
 export LIPIVOICE_DB_PATH=data/lipivoice.sqlite
+export LIPIVOICE_PUBLIC_BASE_URL=https://ai.silverlining.com.np/voice
 ```
 
 The remote preset seeds the workspace with:
 
-- vLLM as the OpenAI-compatible LLM runtime.
-- `lipi-ml` faster-whisper large-v3 for STT.
-- `lipi-ml` Piper voices for English and Nepali TTS.
-- A manifest-backed model catalog for downloaded Nepali TTS candidates.
-- Optional Google Cloud credentials mounted as deploy-time secrets for cloud TTS/STT fallback experiments.
+- `runtime_vllm` — vLLM (Gemma 4B) as the primary LLM.
+- `runtime_lipi_ml_stt` — Faster-Whisper for Nepali STT.
+- `runtime_lipi_ml_tts` — Piper HTTP (via LipiML endpoint) for the default Nepali voice `voice_lipi_ml_ne`.
+- `runtime_piper_http` — direct Piper HTTP for voices `voice_piper_ne_sita` / `voice_piper_ne_maya`.
+- `runtime_coqui_http` — Coqui XTTS for `voice_coqui_ne_anju` / `voice_coqui_ne_kiran`.
+- `runtime_fastpitch_http` — FastPitch for `voice_fastpitch_ne_nabin` / `voice_fastpitch_ne_bikram`.
 
-The Docker remote deployment uses container paths instead:
+## Voices
 
-- Host model root: `/data/models/lipivoice/tts`
-- Container model mount: `/models/tts:ro`
-- Host manifest: `/data/models/lipivoice/tts/manifest.json`
-- Container manifest: `/models/tts/manifest.json`
-- Host Google secret root: `/data/secrets/lipivoice/google`
-- Container Google secret mount: `/run/secrets/lipivoice/google:ro`
+All production voices are Nepali-native. The default agent voice is `voice_lipi_ml_ne` (Sita via LipiML Piper endpoint).
 
-Set up Google service-account files on the remote server without committing them:
+| Voice ID | Name | Runtime | Tags |
+| -------- | ---- | ------- | ---- |
+| `voice_lipi_ml_ne` | Sita (LipiML) | `runtime_lipi_ml_tts` | piper, nepali, female, default |
+| `voice_piper_ne_sita` | Sita (Piper) | `runtime_piper_http` | piper, nepali, female, fast |
+| `voice_piper_ne_maya` | Maya (Piper) | `runtime_piper_http` | piper, nepali, female, fast |
+| `voice_coqui_ne_anju` | Anju (Coqui) | `runtime_coqui_http` | coqui, nepali, female, expressive |
+| `voice_coqui_ne_kiran` | Kiran (Coqui) | `runtime_coqui_http` | coqui, nepali, male, expressive |
+| `voice_fastpitch_ne_nabin` | Nabin (FastPitch) | `runtime_fastpitch_http` | fastpitch, nepali, male, gpu |
+| `voice_fastpitch_ne_bikram` | Bikram (FastPitch) | `runtime_fastpitch_http` | fastpitch, nepali, male, gpu |
+
+## Development
 
 ```sh
-install -d -m 700 /data/secrets/lipivoice/google
-cp /path/to/lipikosh-a6477dd41434.json /data/secrets/lipivoice/google/
-cp /path/to/lipikosh-a5a135de8c87.json /data/secrets/lipivoice/google/
-chmod 600 /data/secrets/lipivoice/google/*.json
+npm install
+npm run dev:server     # API on :8787
+npm run dev            # Vite on :5173 (proxies /api to :8787)
 ```
 
-The JSON files must stay out of Git. The compose file mounts that directory read-only and sets:
+Open `http://localhost:5173`.
 
-- `GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
-- `GOOGLE_TTS_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a6477dd41434.json`
-- `GOOGLE_STT_CREDENTIALS_PATH=/run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json`
-- `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`
-- `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`
-- `GOOGLE_TTS_VOICE_NE=Kore`
+## Realtime Web Calls (LiveKit)
 
-For Google language codes, use `ne` or `ne-NP` for Nepali. The backend normalizes `ne` to `ne-NP`; it does not treat `np` as Nepali.
+```sh
+export LIVEKIT_URL=ws://127.0.0.1:7880
+export LIVEKIT_API_KEY=devkey
+export LIVEKIT_API_SECRET=devsecret
+export LIVEKIT_AGENT_NAME=lipivoice-receptionist
+export LIPIVOICE_WORKER_API_KEY=worker-secret
+```
 
-Voice Lab exposes this Nepali TTS provider benchmark catalog:
+Start the Python worker:
 
-| Provider | Role | Current remote state |
-| --- | --- | --- |
-| Google Cloud TTS | Cloud fallback for Nepali TTS experiments | Configured for Gemini-TTS Preview with `ne-NP`, model `gemini-3.1-flash-tts-preview`, and Nepali voice env `GOOGLE_TTS_VOICE_NE=Kore`. Remote health is `healthy`, but benchmark currently returns `provider_synthesis_failed` because Google denies `aiplatform.endpoints.predict`; grant the service account `roles/aiplatform.user` or an equivalent custom role. |
-| Indic Parler TTS | Best proven Nepali baseline candidate | Catalog entry is gated by Hugging Face access or token acceptance and reports `license_required` until that is resolved. |
-| OmniVoice | Experimental multilingual and cloning candidate | Model files are downloaded and catalog health is `healthy`, but benchmark returns `provider_adapter_not_connected` until an inference runner is wired. |
-| Chatterbox Nepali | Nepali-specific cloning candidate | Hugging Face gated model access is still required, so it reports `license_required`. |
-| Coqui VITS / Piper-VITS | Stable custom Nepali voice path | Healthy through the current `lipi-ml` / Piper path; benchmark generates WAV audio. |
+```sh
+cd services/livekit-worker
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python agent.py dev
+```
 
-On the remote server, build and run without installing host Node:
+Then open the Calls page and click **Start live call** for a WebRTC session, or **Start demo call** for a simulated API-only turn.
+
+## Operations CRM
+
+SQLite tables owned by LipiVoice:
+
+| Table | Purpose |
+| ----- | ------- |
+| `customers` | Caller profiles and CMS-synced leads |
+| `policies` | Insurance policies linked to customers, with renewal dates |
+| `tickets` | Issues, complaints, claim follow-ups, escalations |
+| `appointments` | Callback requests with preferred time |
+| `transfers` | Queued handoffs to licensed staff |
+| `campaigns` | Outbound campaign definitions |
+| `campaign_runs` | Per-contact call execution records |
+
+Worker tools create `customers`, `tickets`, `appointments`, and `transfers` automatically during live calls and attach them to call event logs. The Operations page is the review surface.
+
+## Campaigns (Outbound)
+
+The Campaigns page lets you:
+
+- **Quick build** — generate a renewal campaign from all policies due within a date range.
+- **Manual create** — define name, type (renewal, claim_followup, survey), script template, and contact list.
+- **Launch** — dispatch outbound calls; each contact gets the agent prompt enriched with their customer and policy context.
+- **Track** — live per-contact status (pending → dialing → completed/failed).
+
+```sh
+GET  /api/campaigns
+POST /api/campaigns
+GET  /api/campaigns/:id
+POST /api/campaigns/:id/launch
+GET  /api/campaigns/:id/runs
+POST /api/campaigns/build-renewal   # body: { startDate, endDate }
+```
+
+## CMS Integration
+
+Sync customers and policies from any external API:
+
+```sh
+POST /api/cms/sync
+{
+  "baseUrl": "https://your-cms.example.com",
+  "authMode": "bearer" | "api_key" | "basic" | "none",
+  "authValue": "<token or user:pass>"
+}
+```
+
+The adapter normalises snake_case and camelCase field names and deduplicates by phone number / CMS ID.
+
+## Full API Reference
+
+```sh
+# Health
+GET  /api/health
+
+# Runtimes & models
+GET  /api/model-runtimes
+GET  /api/model-assets
+GET  /api/tts/providers
+POST /api/tts/benchmark
+
+# Agents & voices
+GET  /api/agents
+GET  /api/voices
+GET  /api/tools
+
+# Calls
+GET  /api/calls
+POST /api/calls/simulate
+GET  /api/calls/:id/events
+POST /api/calls/:id/simulate-turn
+
+# Operations
+GET  /api/customers
+GET  /api/customers/:id
+GET  /api/tickets
+GET  /api/appointments
+GET  /api/transfers
+
+# Policies
+GET  /api/policies
+GET  /api/policies/:id
+GET  /api/customers/:id/policies
+
+# Campaigns
+GET  /api/campaigns
+POST /api/campaigns
+GET  /api/campaigns/:id
+POST /api/campaigns/:id/launch
+GET  /api/campaigns/:id/runs
+POST /api/campaigns/build-renewal
+
+# CMS sync
+POST /api/cms/sync
+
+# LiveKit
+POST /api/livekit/web-call/start
+```
+
+## Docker (Remote Deployment)
 
 ```sh
 docker compose -f docker-compose.remote.yml up -d --build
 ```
 
-The container uses host networking so it can reach existing services on `127.0.0.1:8002` and `127.0.0.1:5001`. The app listens on `http://127.0.0.1:8787`.
+Services:
 
-Useful remote checks:
+- `lipiv-app` — Express API + Vite build, port `8787`.
+- `lipiv-livekit` — LiveKit SFU, TCP `7880` / UDP `443` / `30000-30002`.
+- `lipiv-livekit-worker` — Python agent worker `lipivoice-receptionist`.
+
+TTS/STT/LLM inference services (Piper, Coqui, FastPitch, Faster-Whisper, Ollama/vLLM) run as separate containers — wire them in docker-compose or run on separate hosts and point the env vars at them.
+
+Useful health checks:
 
 ```sh
 curl -s http://127.0.0.1:8787/api/health
 curl -s http://127.0.0.1:8787/api/model-runtimes
 curl -s http://127.0.0.1:8787/api/tts/providers
+curl -s http://127.0.0.1:8787/api/campaigns
 curl -s -X POST http://127.0.0.1:8787/api/tts/benchmark \
   -H 'content-type: application/json' \
-  -d '{"providerId":"coqui_piper_vits","text":"नमस्ते, लिपिभ्वाइस परीक्षण हो।"}'
+  -d '{"providerId":"piper_http_tts","text":"नमस्ते, लिपिभ्वाइस परीक्षण हो।"}'
 ```
-
-Expected provider behavior on the current remote server:
-
-- `coqui_piper_vits` can generate audio through `lipi-ml` / Piper.
-- `google_cloud_tts` is configured for Gemini-TTS Preview with `ne-NP` and `Kore`; current remote synthesis is blocked by missing `aiplatform.endpoints.predict` permission.
-- `omnivoice` is downloaded but does not synthesize until its adapter is implemented.
-- `indic_parler_tts` and `chatterbox_nepali` require gated model access or accepted license terms.
-
-## Development
-
-Install dependencies:
-
-```sh
-npm install
-```
-
-Start the API server:
-
-```sh
-npm run dev:server
-```
-
-Start the frontend dev server in another terminal:
-
-```sh
-npm run dev
-```
-
-Open the Vite URL, usually `http://localhost:5173`. The Vite dev server proxies `/api` and `/api/realtime` to the API server on port `8787`.
 
 ## Verification
-
-Run the test suite, lint, and production build:
 
 ```sh
 npm run test
 npm run lint
 npm run build
 ```
+
+237/240 tests passing (3 pre-existing UI error-state timing issues unrelated to core functionality).

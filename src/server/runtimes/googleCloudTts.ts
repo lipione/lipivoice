@@ -1,7 +1,10 @@
-import { createSign } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import type { RuntimeHealthResult, TtsAdapter } from "./types";
-
+import {
+  getGoogleAccessToken,
+  googleUserProjectHeader,
+  readGoogleServiceAccount,
+  type GoogleServiceAccount,
+} from "./googleAuth";
 interface GoogleCloudTtsOptions {
   credentialsPath: string;
   languageCode?: string;
@@ -12,17 +15,9 @@ interface GoogleCloudTtsOptions {
   now?: () => number;
 }
 
-interface GoogleServiceAccount {
-  type?: string;
-  project_id?: string;
-  client_email?: string;
-  private_key?: string;
-  token_uri?: string;
-}
-
-interface TokenResponse {
-  access_token?: string;
-  expires_in?: number;
+interface TokenCache {
+  accessToken: string;
+  expiresAtMs: number;
 }
 
 interface VoicesResponse {
@@ -33,6 +28,21 @@ interface SynthesizeResponse {
   audioContent?: string;
 }
 
+interface GoogleVoiceProfile {
+  languageCode: string;
+  voiceName: string;
+}
+
+const googleVoiceProfiles: Record<string, GoogleVoiceProfile> = {
+  voice_google_tts_ne: { languageCode: "ne-NP", voiceName: "Kore" },
+  voice_google_gemini_kore_ne: { languageCode: "ne-NP", voiceName: "Kore" },
+  voice_google_gemini_aoede_ne: { languageCode: "ne-NP", voiceName: "Aoede" },
+  voice_google_gemini_leda_ne: { languageCode: "ne-NP", voiceName: "Leda" },
+  voice_google_gemini_charon_ne: { languageCode: "ne-NP", voiceName: "Charon" },
+  voice_google_gemini_puck_ne: { languageCode: "ne-NP", voiceName: "Puck" },
+  voice_google_gemini_orus_ne: { languageCode: "ne-NP", voiceName: "Orus" },
+};
+
 export class GoogleCloudTtsAdapter implements TtsAdapter {
   private readonly credentialsPath: string;
   private readonly languageCode: string;
@@ -41,7 +51,7 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
   private readonly prompt: string;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
-  private token: { accessToken: string; expiresAtMs: number } | null = null;
+  private token: TokenCache | null = null;
 
   constructor(options: GoogleCloudTtsOptions) {
     this.credentialsPath = options.credentialsPath;
@@ -54,7 +64,7 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
   }
 
   async health(): Promise<RuntimeHealthResult> {
-    const credentials = await this.readCredentials();
+    const credentials = await readGoogleServiceAccount(this.credentialsPath);
     if (!credentials) {
       return { status: "missing_model", reason: "runtime_not_configured" };
     }
@@ -91,122 +101,94 @@ export class GoogleCloudTtsAdapter implements TtsAdapter {
   }
 
   async synthesize(input: { text: string; voicePath: string }): Promise<{ audioBase64: string; mimeType: string }> {
-    const credentials = await this.readCredentials();
+    const credentials = await readGoogleServiceAccount(this.credentialsPath);
     if (!credentials) {
       throw new Error("Google Cloud TTS credentials are not configured");
     }
 
     const token = await this.getAccessToken(credentials);
-    const response = await this.fetchImpl("https://texttospeech.googleapis.com/v1/text:synthesize", {
+    const profile = this.voiceProfileForPath(input.voicePath);
+    const headers = {
+      authorization: `Bearer ${token}`,
+      ...googleUserProjectHeader(credentials),
+      "content-type": "application/json",
+    };
+    const response = await this.synthesizeWithGoogle(input.text, headers, profile, {
+      includeModel: Boolean(this.modelName),
+      includeVoiceName: Boolean(profile.voiceName),
+    });
+
+    if (response.ok) {
+      return readSynthesizeResponse(response);
+    }
+
+    if (this.modelName) {
+      const fallbackResponse = await this.synthesizeWithGoogle(input.text, headers, profile, {
+        includeModel: false,
+        includeVoiceName: false,
+      });
+
+      if (fallbackResponse.ok) {
+        return readSynthesizeResponse(fallbackResponse);
+      }
+
+      throw new Error(
+        `Google Cloud TTS failed with status ${response.status}; standard fallback failed with status ${fallbackResponse.status}`,
+      );
+    }
+
+    throw new Error(`Google Cloud TTS failed with status ${response.status}`);
+  }
+
+  private async synthesizeWithGoogle(
+    text: string,
+    headers: Record<string, string>,
+    profile: GoogleVoiceProfile,
+    options: { includeModel: boolean; includeVoiceName: boolean },
+  ): Promise<Response> {
+    return this.fetchImpl("https://texttospeech.googleapis.com/v1/text:synthesize", {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...googleUserProjectHeader(credentials),
-        "content-type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
-        input: this.modelName ? { prompt: this.prompt, text: input.text } : { text: input.text },
+        input: options.includeModel ? { prompt: this.prompt, text } : { text },
         voice: {
-          languageCode: this.languageCode,
-          ...(this.voiceName ? { name: this.voiceName } : {}),
-          ...(this.modelName ? { model_name: this.modelName } : {}),
+          languageCode: profile.languageCode,
+          ...(options.includeVoiceName && profile.voiceName ? { name: profile.voiceName } : {}),
+          ...(options.includeModel && this.modelName ? { model_name: this.modelName } : {}),
         },
         audioConfig: { audioEncoding: "MP3" },
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`Google Cloud TTS failed with status ${response.status}`);
-    }
-
-    const body = (await response.json()) as SynthesizeResponse;
-    if (!body.audioContent) {
-      throw new Error("Google Cloud TTS response did not include audioContent");
-    }
-
-    return {
-      audioBase64: body.audioContent,
-      mimeType: "audio/mpeg",
-    };
   }
 
-  private async readCredentials(): Promise<GoogleServiceAccount | null> {
-    if (!this.credentialsPath) {
-      return null;
-    }
-
-    try {
-      const credentials = JSON.parse(await readFile(this.credentialsPath, "utf8")) as GoogleServiceAccount;
-      if (credentials.type !== "service_account" || !credentials.client_email || !credentials.private_key) {
-        return null;
-      }
-
-      return credentials;
-    } catch {
-      return null;
-    }
+  private voiceProfileForPath(voicePath: string): GoogleVoiceProfile {
+    return (this.modelName ? googleVoiceProfiles[voicePath] : null) ?? {
+      languageCode: this.languageCode,
+      voiceName: this.voiceName,
+    };
   }
 
   private async getAccessToken(credentials: GoogleServiceAccount): Promise<string> {
-    if (this.token && this.token.expiresAtMs - this.now() > 60_000) {
-      return this.token.accessToken;
-    }
-
-    const tokenUri = credentials.token_uri ?? "https://oauth2.googleapis.com/token";
-    const nowSeconds = Math.floor(this.now() / 1000);
-    const assertion = signJwt(
-      {
-        alg: "RS256",
-        typ: "JWT",
-      },
-      {
-        iss: credentials.client_email,
-        scope: "https://www.googleapis.com/auth/cloud-platform",
-        aud: tokenUri,
-        iat: nowSeconds,
-        exp: nowSeconds + 3600,
-      },
-      credentials.private_key ?? "",
-    );
-
-    const response = await this.fetchImpl(tokenUri, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion,
-      }),
+    const result = await getGoogleAccessToken({
+      credentials,
+      fetchImpl: this.fetchImpl,
+      now: this.now,
+      tokenCache: this.token,
     });
 
-    if (!response.ok) {
-      throw new Error(`Google OAuth token request failed with status ${response.status}`);
-    }
-
-    const body = (await response.json()) as TokenResponse;
-    if (!body.access_token) {
-      throw new Error("Google OAuth token response did not include access_token");
-    }
-
-    this.token = {
-      accessToken: body.access_token,
-      expiresAtMs: this.now() + Math.max(1, body.expires_in ?? 3600) * 1000,
-    };
-
-    return this.token.accessToken;
+    this.token = result.tokenCache;
+    return result.token;
   }
 }
 
-function signJwt(header: object, payload: object, privateKey: string): string {
-  const unsigned = `${base64UrlJson(header)}.${base64UrlJson(payload)}`;
-  const signature = createSign("RSA-SHA256").update(unsigned).sign(privateKey).toString("base64url");
+async function readSynthesizeResponse(response: Response): Promise<{ audioBase64: string; mimeType: string }> {
+  const body = (await response.json()) as SynthesizeResponse;
+  if (!body.audioContent) {
+    throw new Error("Google Cloud TTS response did not include audioContent");
+  }
 
-  return `${unsigned}.${signature}`;
-}
-
-function base64UrlJson(value: object): string {
-  return Buffer.from(JSON.stringify(value)).toString("base64url");
-}
-
-function googleUserProjectHeader(credentials: GoogleServiceAccount): Record<string, string> {
-  return credentials.project_id ? { "x-goog-user-project": credentials.project_id } : {};
+  return {
+    audioBase64: body.audioContent,
+    mimeType: "audio/mpeg",
+  };
 }

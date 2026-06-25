@@ -10,12 +10,18 @@ class MockWebSocket extends EventTarget {
   static OPEN = 1;
   static CLOSED = 3;
 
-  readyState = MockWebSocket.OPEN;
+  readyState = MockWebSocket.CONNECTING;
   sent: string[] = [];
 
   constructor(readonly url: string) {
     super();
     MockWebSocket.instances.push(this);
+    queueMicrotask(() => {
+      if (this.readyState === MockWebSocket.CONNECTING) {
+        this.readyState = MockWebSocket.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+    });
   }
 
   send(message: string) {
@@ -41,7 +47,7 @@ class MockMediaRecorder extends EventTarget {
     this.onstop?.();
   });
 
-  constructor(readonly stream: MediaStream) {
+  constructor(readonly stream: MediaStream, readonly options?: MediaRecorderOptions) {
     super();
     if (MockMediaRecorder.throwOnConstruct) {
       throw new Error("recorder failed");
@@ -97,18 +103,63 @@ const defaultAgents = [
   },
 ];
 
+const defaultVoices = [
+  {
+    id: "voice_google_tts_ne",
+    name: "Sita",
+    runtimeId: "runtime_google_tts",
+    type: "builtin",
+    language: "ne-NP",
+    tags: ["lipivoice", "nepali", "managed-preview", "accent-review"],
+    previewUrl: "",
+    privacy: "workspace",
+    cloneStatus: "not_clone",
+    consentId: null,
+  },
+  {
+    id: "voice_google_gemini_puck_ne",
+    name: "Nabin",
+    runtimeId: "runtime_google_tts",
+    type: "builtin",
+    language: "ne-NP",
+    tags: ["lipivoice", "nepali", "male", "managed-preview", "accent-review"],
+    previewUrl: "",
+    privacy: "workspace",
+    cloneStatus: "not_clone",
+    consentId: null,
+  },
+  {
+    id: "voice_lipi_ml_ne",
+    name: "Mina",
+    runtimeId: "runtime_lipi_ml_tts",
+    type: "builtin",
+    language: "ne-NP",
+    tags: ["remote", "piper", "nepali", "native-target"],
+    previewUrl: "",
+    privacy: "workspace",
+    cloneStatus: "not_clone",
+    consentId: null,
+  },
+];
+
 function stubRealtimeSession(
   token = "session_token",
   options: {
     agents?: typeof defaultAgents;
+    voices?: typeof defaultVoices;
     sessionResponse?: Response;
   } = {},
 ) {
   const agents = options.agents ?? defaultAgents;
+  const voices = options.voices ?? defaultVoices;
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/agents") {
       return Response.json(agents);
+    }
+
+    if (url === "/api/voices") {
+      return Response.json(voices);
     }
 
     if (url === "/api/realtime/session") {
@@ -184,6 +235,14 @@ describe("VoiceConsolePage", () => {
     expect(screen.getByText("0 audio")).toBeInTheDocument();
   });
 
+  it("loads additional simulator voices from the API", async () => {
+    render(<VoiceConsolePage />);
+
+    expect(await screen.findByRole("option", { name: "Mina - ne-NP - Nepali-native target" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Sita - ne-NP - Preview - accent review" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Nabin - ne-NP - Preview - accent review" })).toBeInTheDocument();
+  });
+
   it("shows a clear unsupported error when recording is unavailable", async () => {
     const user = userEvent.setup();
     stubMic();
@@ -242,7 +301,7 @@ describe("VoiceConsolePage", () => {
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
     vi.stubGlobal("WebSocket", MockWebSocket);
 
-    render(<VoiceConsolePage />);
+    const { container } = render(<VoiceConsolePage />);
 
     await user.click(screen.getByRole("button", { name: /Start/ }));
 
@@ -256,13 +315,124 @@ describe("VoiceConsolePage", () => {
         data: JSON.stringify({
           type: "audio",
           actor: "assistant",
-          payload: { audioBase64: "UklGRg==", mimeType: "audio/wav" },
+          payload: { audioBase64: "SUQz", mimeType: "audio/mpeg", providerId: "google_tts" },
         }),
       }),
     );
 
     expect(await screen.findByText("hello")).toBeInTheDocument();
     expect(screen.getByText("1 queued")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(container.querySelector("audio")?.getAttribute("src")).toBe("data:audio/mpeg;base64,SUQz"),
+    );
+  });
+
+  it("runs a Nepali simulated call turn and renders assistant audio", async () => {
+    const user = userEvent.setup();
+    const simulatedCall = {
+      id: "call_sim_1",
+      channel: "simulation",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-05-30T00:00:00.000Z",
+      endedAt: null,
+      durationSeconds: 0,
+      costEstimateUsd: 0,
+      recordingUrl: null,
+      failureReason: null,
+    };
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/agents") {
+        return Response.json(defaultAgents);
+      }
+
+      if (url === "/api/calls/simulate" && init?.method === "POST") {
+        return Response.json(
+          {
+            call: simulatedCall,
+            events: [
+              {
+                id: "evt_connected",
+                callId: simulatedCall.id,
+                timestamp: "2026-05-30T00:00:00.000Z",
+                type: "status",
+                actor: "system",
+                payload: { status: "connected" },
+                severity: "info",
+              },
+            ],
+          },
+          { status: 201 },
+        );
+      }
+
+      if (url === "/api/calls/call_sim_1/simulate-turn" && init?.method === "POST") {
+        return Response.json({
+          call: simulatedCall,
+          assistantText: "नमस्ते, म तपाईंलाई सहयोग गर्न तयार छु।",
+          audio: { audioBase64: "UklGRg==", mimeType: "audio/wav" },
+          voiceId: "voice_lipi_ml_ne",
+          providerId: "piper",
+          fallbackReason: "tts_synthesis_failed",
+          latencyMs: 250,
+          events: [
+            {
+              id: "evt_user",
+              callId: simulatedCall.id,
+              timestamp: "2026-05-30T00:00:01.000Z",
+              type: "transcript",
+              actor: "user",
+              payload: { text: "नमस्ते, म एउटा परीक्षण कल गर्दैछु।" },
+              severity: "info",
+            },
+            {
+              id: "evt_assistant",
+              callId: simulatedCall.id,
+              timestamp: "2026-05-30T00:00:01.000Z",
+              type: "transcript",
+              actor: "assistant",
+              payload: { text: "नमस्ते, म तपाईंलाई सहयोग गर्न तयार छु।" },
+              severity: "info",
+            },
+            {
+              id: "evt_audio",
+              callId: simulatedCall.id,
+              timestamp: "2026-05-30T00:00:01.000Z",
+              type: "audio",
+              actor: "assistant",
+              payload: { audioBase64: "UklGRg==", mimeType: "audio/wav", providerId: "piper" },
+              severity: "info",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ code: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<VoiceConsolePage />);
+
+    await user.click(await screen.findByRole("button", { name: "Send turn" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/calls/call_sim_1/simulate-turn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            text: "नमस्ते, म एउटा परीक्षण कल गर्दैछु।",
+            language: "ne",
+            voiceId: "voice_lipi_ml_ne",
+            ttsProvider: "piper",
+          }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("नमस्ते, म तपाईंलाई सहयोग गर्न तयार छु।")).toBeInTheDocument();
+    expect(screen.getByText("1 replies")).toBeInTheDocument();
   });
 
   it("cleans up recorder, socket, and tracks on unmount", async () => {

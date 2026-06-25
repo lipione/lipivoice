@@ -8,6 +8,24 @@ The first shippable milestone is:
 
 > A user can open LipiVoice, start a simulated web call, speak Nepali to the Lipi Insurance receptionist, hear a Google Nepali voice response, interrupt naturally, and see transcript, status, runtime, and tool events saved in Calls.
 
+## Current Status - 2026-06-02
+
+The deployed remote system has the control plane, runtime selectors, simulation API, Google TTS simulation path, LiveKit server, and LiveKit worker in place.
+
+Confirmed working:
+
+- Calls page can select and save STT, LLM, and TTS voice for `agent_reception`.
+- The selected remote stack is Google STT, Gemini 2.5 Flash, and Google TTS.
+- `POST /api/calls/simulate` creates connected simulation calls.
+- `POST /api/calls/:id/simulate-turn` produces a Nepali assistant response and Google TTS MP3 audio when a Google voice is selected.
+- `POST /api/livekit/web-call/start` creates a LiveKit room, browser token, and explicit agent dispatch.
+- Browser WebSocket upgrade through `/voice/livekit` reaches LiveKit.
+- LiveKit assigns the job to `lipivoice-receptionist`, and the worker posts `worker_started` plus `listening` events.
+
+Remaining blocker:
+
+- A hosted live browser call does not yet complete a reliable spoken back-and-forth. The worker reaches listening state, but the Calls page does not consistently receive final user transcripts, assistant transcript events, and playable assistant audio for browser microphone input.
+
 ## Source Projects Studied
 
 Dograh is the reference for product shape:
@@ -111,18 +129,28 @@ Later workflow scope:
 
 ## Data Flow
 
-### Simulated Web Call
+### API Demo Call
+
+1. Browser asks LipiVoice API to start a simulated call for an agent.
+2. API creates a `Call` record with channel `simulation` and status `connected`.
+3. Browser can submit text turns through `/api/calls/:id/simulate-turn`.
+4. API generates assistant text through the configured LLM path.
+5. API synthesizes assistant audio through the selected voice runtime when available.
+6. Transcript, status, runtime, and audio events persist to `CallEvent`.
+
+### LiveKit Web Call
 
 1. Browser asks LipiVoice API to start a simulated call for an agent.
 2. API creates a `Call` record with channel `web` and status `connected`.
 3. API creates or selects a LiveKit room.
-4. API returns a LiveKit token and call id.
-5. Browser joins the room and publishes microphone audio.
-6. Python worker joins the room as the agent participant.
-7. Worker starts `AgentSession`.
-8. Worker sends call events to LipiVoice API.
-9. Browser renders transcript/status from persisted events or realtime event stream.
-10. Ending the call updates `Call.endedAt`, duration, status, and failure reason if any.
+4. API dispatches the named worker with call and agent metadata.
+5. API returns a LiveKit token and call id.
+6. Browser joins the room and publishes microphone audio.
+7. Python worker joins the room as the agent participant.
+8. Worker starts `AgentSession`.
+9. Worker sends call events to LipiVoice API.
+10. Browser renders transcript/status from persisted events or a realtime event stream.
+11. Ending the call updates `Call.endedAt`, duration, status, and failure reason if any.
 
 ### Phone Call
 
@@ -186,12 +214,13 @@ End-to-end verification requires:
 
 ### Phase 3: LiveKit Web Call Runtime
 
-- Add LiveKit config
-- Add token/session API
-- Add Python worker service
-- Connect browser to LiveKit room
-- Persist worker events
-- Replace raw web socket path for the primary simulated call flow
+- Add LiveKit config: complete.
+- Add token/session API: complete.
+- Add Python worker service: complete.
+- Connect browser to LiveKit room: complete for WebSocket join and microphone publish.
+- Persist worker events: partial; worker startup and state events persist.
+- Complete live browser conversation: remaining. Need reliable final STT transcript, Gemini response, Google TTS audio publication, and UI event refresh.
+- Replace raw web socket path for the primary live call flow: partial; Calls page uses LiveKit, Web Voice still uses the older raw WebSocket path.
 
 ### Phase 4: Automated Simulation
 
@@ -240,12 +269,14 @@ End-to-end verification requires:
 
 ## Acceptance Criteria For First Milestone
 
-- The app can start a simulated web call for `agent_reception`.
-- The browser and worker communicate through LiveKit.
-- The caller can speak Nepali and receive a spoken Nepali response.
-- Google TTS is used when configured for the selected voice.
-- The agent can be interrupted naturally.
-- Transcript entries persist to `CallEvent`.
-- Status changes persist to `CallEvent`.
-- Runtime/provider metadata is visible in the Calls UI.
-- Failures identify the failing stage: LiveKit, STT, LLM, TTS, tool, or persistence.
+- The app can start an API demo call for `agent_reception`: met.
+- The app can run a simulated text turn and return Google TTS audio: met.
+- The app can create a LiveKit web room and dispatch the worker: met.
+- The browser and worker can join the same LiveKit room: met.
+- The caller can speak Nepali and receive a spoken Nepali response in the hosted browser: not met.
+- Google TTS is used when configured for the selected voice: met for simulated turns, still to verify for live browser calls.
+- The agent can be interrupted naturally: not met.
+- Transcript entries persist to `CallEvent`: met for simulated turns, partial for LiveKit worker.
+- Status changes persist to `CallEvent`: met.
+- Runtime/provider metadata is visible in the Calls UI: met.
+- Failures identify the failing stage: partial; live browser failure needs clearer worker/provider stage events.

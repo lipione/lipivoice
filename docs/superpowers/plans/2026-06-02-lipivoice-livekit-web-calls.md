@@ -10,6 +10,39 @@
 
 ---
 
+## Current Status - 2026-06-02
+
+Implemented and deployed:
+
+- LiveKit JS server and browser client dependencies.
+- LiveKit configuration fields and derived API URL.
+- `/api/livekit/web-call/start` room/token/dispatch API.
+- `/api/worker/session-config` and worker event ingestion APIs.
+- Python LiveKit worker registered as `lipivoice-receptionist`.
+- Remote compose services for `lipiv-app`, `lipiv-livekit`, and `lipiv-livekit-worker`.
+- Calls page buttons for `Start live call`, `Start demo call`, and `End call`.
+- Calls page tabs for transcript and call log.
+- Calls page runtime selectors for STT, LLM, and TTS voice.
+- Google STT, Gemini, and Google TTS selectable runtime records.
+- API-only simulated call turn path with Nepali assistant text and Google TTS MP3 audio.
+
+Confirmed in production:
+
+- `POST /api/calls/simulate` returns 201.
+- `POST /api/calls/:id/simulate-turn` returns assistant text plus Google TTS audio.
+- `POST /api/livekit/web-call/start` returns 201 with room, token, and dispatch id.
+- Browser reaches LiveKit through `/voice/livekit`.
+- LiveKit assigns the worker job.
+- Worker posts `worker_started` and `listening` events.
+
+Remaining work before this plan is complete:
+
+- Live browser call must emit final user transcript events from Google STT.
+- Live browser call must emit assistant transcript events from Gemini.
+- Live browser call must publish playable Google TTS audio back to the browser.
+- Calls UI must refresh or subscribe to live worker events during an active LiveKit call.
+- Worker/provider failures must persist with explicit stage names instead of only generic disconnects.
+
 ## Scope Check
 
 The approved design covers multiple independent subsystems. This plan covers only the first executable milestone: LiveKit-backed simulated web calls. Separate plans should handle SIP telephony, workflow graph/versioning, knowledge indexing, campaigns, auth, and production hardening.
@@ -854,7 +887,7 @@ git commit -m "feat: add browser livekit call client"
 Add tests to `src/features/calls/CallsPage.test.tsx`:
 
 ```tsx
-it("starts a LiveKit web call from the Composer button", async () => {
+it("starts a LiveKit web call from the Start live call button", async () => {
   const user = userEvent.setup();
   const liveKitStart = vi.fn().mockResolvedValue({
     call: webCall,
@@ -1191,7 +1224,7 @@ Create `services/livekit-worker/README.md`:
 ```md
 # LipiVoice LiveKit Worker
 
-Runs the LiveKit Agents worker for LipiVoice simulated web calls.
+Runs the LiveKit Agents worker for LipiVoice web-call sessions.
 
 ## Setup
 
@@ -1900,7 +1933,7 @@ cd services/livekit-worker
 python agent.py dev
 ```
 
-Open `http://127.0.0.1:5173/`, go to Calls, and click Composer.
+Open `http://127.0.0.1:5173/`, go to Calls, and click **Start live call** for a LiveKit room or **Start demo call** for an API-only simulated call.
 ```
 
 - [ ] **Step 2: Run full validation**
@@ -1933,7 +1966,7 @@ http://127.0.0.1:5173/
 Verify:
 
 - Calls page renders without overlapping text at desktop width.
-- Composer starts a LiveKit web call when LiveKit credentials are configured.
+- Start live call creates a LiveKit web call when LiveKit credentials are configured.
 - Failure badge shows `livekit_not_configured` when credentials are missing.
 - Runtime cards show STT, model, and voice providers from diagnostics.
 - Call events persist after refresh.

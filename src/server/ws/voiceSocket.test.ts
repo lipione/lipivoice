@@ -193,6 +193,25 @@ describe("voice socket", () => {
     ]);
   });
 
+  it("keeps listening when an audio chunk has no detected speech", async () => {
+    server = createServer();
+    voiceSocket = attachVoiceSocket(server, {
+      checkReady: async () => ({ ready: true }),
+      processAudio: async () => ({ events: [], skippedReason: "no_speech_detected" }),
+    });
+
+    await listen();
+    const ws = connect("/api/realtime");
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({ type: "audio_chunk", mimeType: "audio/webm", audioBase64: "in" }));
+
+    await expect(readJsonMessages(ws, 3)).resolves.toEqual([
+      { type: "status", status: "listening" },
+      { type: "status", status: "thinking" },
+      { type: "status", status: "listening" },
+    ]);
+  });
+
   it("records failed processing and finishes the call as failed", async () => {
     const recordedEvents: VoiceSocketRecordedEvent[] = [];
     const finishedCalls: Array<Record<string, unknown>> = [];

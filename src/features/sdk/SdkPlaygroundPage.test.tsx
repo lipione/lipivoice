@@ -39,5 +39,7 @@ describe("SdkPlaygroundPage", () => {
     expect(snippet).toHaveTextContent('agentId: "agent_support"');
     expect(snippet).toHaveTextContent("https://voice.example.com/api/realtime/session");
     expect(snippet).toHaveTextContent("wss://voice.example.com/api/realtime");
+    expect(snippet).toHaveTextContent("Authorization");
+    expect(snippet).toHaveTextContent("LIPIVOICE_ADMIN_TOKEN");
   });
 });

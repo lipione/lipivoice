@@ -3,29 +3,40 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/voice/}
     image: lipiv-app:latest
     container_name: lipiv-app
-    network_mode: host
+    networks:
+      - bankai_default
+      - lipi_lipi-net
     environment:
       NODE_ENV: production
       PORT: ${PORT:-8787}
       LIPIVOICE_DB_PATH: /app/data/lipivoice.sqlite
       LIPIVOICE_RUNTIME_PRESET: remote
-      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://127.0.0.1:8002/v1}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://lipi-lipibhasa-vllm:8200/v1}
       VLLM_MODEL: ${VLLM_MODEL:-gemma-4}
-      LIPI_ML_BASE_URL: ${LIPI_ML_BASE_URL:-http://127.0.0.1:5001}
+      LIPI_ML_BASE_URL: ${LIPI_ML_BASE_URL:-http://lipi-ml:5001}
+      PIPER_HTTP_ENDPOINT: ${PIPER_HTTP_ENDPOINT:-http://lipi-ml-piper:5002}
+      COQUI_HTTP_ENDPOINT: ${COQUI_HTTP_ENDPOINT:-http://lipi-ml-coqui:5003}
+      FASTPITCH_HTTP_ENDPOINT: ${FASTPITCH_HTTP_ENDPOINT:-http://lipi-ml-fastpitch:5004}
+      INDIC_PARLER_ENDPOINT: ${INDIC_PARLER_ENDPOINT:-http://lipi-tts-parler:5010}
+      FASTER_WHISPER_ENDPOINT: ${FASTER_WHISPER_ENDPOINT:-http://lipi-ml-whisper:9000}
       LIPIVOICE_TTS_MODEL_MANIFEST: /models/tts/manifest.json
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/lipivoice/google/lipikosh-a6477dd41434.json
-      GOOGLE_TTS_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a6477dd41434.json
-      GOOGLE_STT_CREDENTIALS_PATH: /run/secrets/lipivoice/google/lipikosh-a5a135de8c87.json
-      GOOGLE_TTS_LANGUAGE_CODE: ${GOOGLE_TTS_LANGUAGE_CODE:-ne-NP}
-      GOOGLE_TTS_MODEL: ${GOOGLE_TTS_MODEL:-gemini-3.1-flash-tts-preview}
-      GOOGLE_TTS_VOICE_NE: ${GOOGLE_TTS_VOICE_NE:-Kore}
-      GOOGLE_TTS_VOICE_NAME: ${GOOGLE_TTS_VOICE_NAME:-}
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://ai.silverlining.com.np/voice/livekit}
+      LIVEKIT_API_URL: ${LIVEKIT_API_URL:-http://lipiv-livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      LIVEKIT_AGENT_NAME: ${LIVEKIT_AGENT_NAME:-lipivoice-receptionist}
+      LIPIVOICE_WORKER_API_KEY: ${LIPIVOICE_WORKER_API_KEY:?LIPIVOICE_WORKER_API_KEY is required}
+      LIPIVOICE_ADMIN_TOKEN: ${LIPIVOICE_ADMIN_TOKEN:?LIPIVOICE_ADMIN_TOKEN is required}
+      LIPIVOICE_ADMIN_USERNAME: ${LIPIVOICE_ADMIN_USERNAME:-admin}
+      LIPIVOICE_ADMIN_PASSWORD: ${LIPIVOICE_ADMIN_PASSWORD:?LIPIVOICE_ADMIN_PASSWORD is required}
+      LIPIVOICE_PUBLIC_BASE_URL: ${LIPIVOICE_PUBLIC_BASE_URL:-https://ai.silverlining.com.np/voice}
     volumes:
       - ./data:/app/data
       - /data/models/lipivoice/tts:/models/tts:ro
-      - /data/secrets/lipivoice/google:/run/secrets/lipivoice/google:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -37,3 +48,106 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: lipiv-livekit
+    networks:
+      - bankai_default
+    ports:
+      - "7880:7880/tcp"
+      - "8080:8080/tcp"
+      - "443:443/udp"
+      - "30000-30002:30000-30002/udp"
+      - "30000-30002:30000-30002/tcp"
+    volumes:
+      - /data/bankai/letsencrypt:/etc/letsencrypt:ro
+    command:
+      [
+        "/livekit-server",
+        "--keys",
+        "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}",
+        "--bind",
+        "0.0.0.0",
+        "--node-ip",
+        "${LIVEKIT_NODE_IP:-202.51.2.50}",
+        "--udp-port",
+        "443",
+        "--turn.enabled",
+        "--turn.tls_port",
+        "8080",
+        "--turn.domain",
+        "${LIVEKIT_TURN_DOMAIN:-ai.silverlining.com.np}",
+        "--turn.relay_range_start",
+        "30000",
+        "--turn.relay_range_end",
+        "30002",
+        "--turn.cert_file",
+        "/etc/letsencrypt/live/ai.silverlining.com.np/fullchain.pem",
+        "--turn.key_file",
+        "/etc/letsencrypt/live/ai.silverlining.com.np/privkey.pem",
+      ]
+    restart: unless-stopped
+
+  livekit-worker:
+    build:
+      context: .
+      dockerfile: services/livekit-worker/Dockerfile
+    image: lipiv-livekit-worker:latest
+    container_name: lipiv-livekit-worker
+    networks:
+      - bankai_default
+      - lipi_lipi-net
+    depends_on:
+      - lipiv-app
+      - livekit
+    environment:
+      LIVEKIT_URL: ws://lipiv-livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      LIVEKIT_AGENT_NAME: ${LIVEKIT_AGENT_NAME:-lipivoice-receptionist}
+      LIPIVOICE_LLM_BACKEND: ${LIPIVOICE_LLM_BACKEND:-vllm}
+      LIPIVOICE_API_BASE_URL: http://lipiv-app:8787
+      LIPIVOICE_WORKER_API_KEY: ${LIPIVOICE_WORKER_API_KEY:?LIPIVOICE_WORKER_API_KEY is required}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://lipi-lipibhasa-vllm:8200/v1}
+      VLLM_MODEL: ${VLLM_MODEL:-gemma-4}
+      VLLM_API_KEY: ${VLLM_API_KEY:-dummy}
+      SELF_HOSTED_STT_ADAPTER: ${SELF_HOSTED_STT_ADAPTER:-lipi_ml}
+      SELF_HOSTED_STT_BASE_URL: ${SELF_HOSTED_STT_BASE_URL:-http://lipi-ml:5001}
+      SELF_HOSTED_STT_LANGUAGE: ${SELF_HOSTED_STT_LANGUAGE:-ne}
+      SELF_HOSTED_TTS_ADAPTER: ${SELF_HOSTED_TTS_ADAPTER:-lipi_ml}
+      SELF_HOSTED_TTS_BASE_URL: ${SELF_HOSTED_TTS_BASE_URL:-http://lipi-ml:5001}
+      SELF_HOSTED_TTS_VOICE: ${SELF_HOSTED_TTS_VOICE:-voice_lipi_ml_ne}
+      SELF_HOSTED_TTS_SAMPLE_RATE: ${SELF_HOSTED_TTS_SAMPLE_RATE:-24000}
+      INDIC_PARLER_ENDPOINT: ${INDIC_PARLER_ENDPOINT:-http://lipi-tts-parler:5010}
+      LIPIVOICE_ALLOW_INTERRUPTION: ${LIPIVOICE_ALLOW_INTERRUPTION:-false}
+      LIPIVOICE_RESUME_FALSE_INTERRUPTION: ${LIPIVOICE_RESUME_FALSE_INTERRUPTION:-true}
+      LIPIVOICE_MIN_ENDPOINTING_DELAY: ${LIPIVOICE_MIN_ENDPOINTING_DELAY:-0.2}
+      LIPIVOICE_MAX_ENDPOINTING_DELAY: ${LIPIVOICE_MAX_ENDPOINTING_DELAY:-0.8}
+    restart: unless-stopped
+
+  indic-parler-tts:
+    profiles:
+      - tts-eval
+    build:
+      context: .
+      dockerfile: services/indic-parler-tts/Dockerfile
+    image: lipiv-indic-parler-tts:latest
+    container_name: lipi-tts-parler
+    networks:
+      - lipi_lipi-net
+    environment:
+      HF_HOME: /models/hf
+      HF_TOKEN: ${HF_TOKEN:-}
+      INDIC_PARLER_MODEL_ID: ${INDIC_PARLER_MODEL_ID:-milanakdj/indic-parler-tts-nepali-finetuned-dgx-v9-cosine}
+      INDIC_PARLER_DESCRIPTION: ${INDIC_PARLER_DESCRIPTION:-Amrita speaks clearly in Nepali at a steady call-center pace. Very clear audio.}
+    volumes:
+      - /data/models/lipivoice/hf-cache:/models/hf
+    gpus: all
+    restart: unless-stopped
+
+networks:
+  bankai_default:
+    external: true
+  lipi_lipi-net:
+    external: true

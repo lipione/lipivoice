@@ -1,0 +1,8 @@
+accelerate>=0.34
+fastapi>=0.115
+numpy>=1.26
+soundfile>=0.12
+torch>=2.4
+transformers>=4.46
+uvicorn[standard]>=0.30
+git+https://github.com/huggingface/parler-tts.git

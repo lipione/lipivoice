@@ -45,7 +45,7 @@ type VoicePipelineEvent =
   | {
       type: "audio";
       actor: "assistant";
-      payload: { audioBase64: string; mimeType: string };
+      payload: { audioBase64: string; mimeType: string; providerId?: string; voiceId?: string };
     };
 
 interface VoicePipelineInput {
@@ -66,6 +66,18 @@ interface VoicePipelineInput {
   toolExecutor?: (tool: Tool, args: Record<string, unknown>) => Promise<ToolExecutionResult>;
 }
 
+export class NoSpeechDetectedError extends Error {
+  constructor() {
+    super("Transcription did not include any speech");
+    this.name = "NoSpeechDetectedError";
+  }
+}
+
+export function isNoSpeechDetectedError(error: unknown): error is NoSpeechDetectedError {
+  return error instanceof NoSpeechDetectedError ||
+    (error instanceof Error && error.name === "NoSpeechDetectedError");
+}
+
 export async function runVoiceTurn(input: VoicePipelineInput) {
   const transcription = await input.stt.transcribe({
     wavPath: input.audioWavPath,
@@ -73,7 +85,7 @@ export async function runVoiceTurn(input: VoicePipelineInput) {
   });
 
   if (transcription.text.trim().length === 0) {
-    throw new Error("Transcription did not include any speech");
+    throw new NoSpeechDetectedError();
   }
 
   const userMessage = { role: "user" as const, content: transcription.text };

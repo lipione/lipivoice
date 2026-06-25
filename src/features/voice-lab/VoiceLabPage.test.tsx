@@ -80,7 +80,7 @@ describe("VoiceLabPage", () => {
           },
           {
             id: "coqui_piper_vits",
-            name: "Coqui VITS / Piper-VITS",
+            name: "LipiVoice Studio",
             role: "stable custom Nepali voice path",
             access: "open",
             configuredState: "configured",
@@ -126,7 +126,7 @@ describe("VoiceLabPage", () => {
     expect(await screen.findByText("Indic Parler TTS")).toBeInTheDocument();
     expect(screen.getByText("OmniVoice")).toBeInTheDocument();
     expect(screen.getByText("Chatterbox Nepali")).toBeInTheDocument();
-    expect(screen.getByText("Coqui VITS / Piper-VITS")).toBeInTheDocument();
+    expect(screen.getByText("LipiVoice Studio")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Benchmark Indic Parler TTS" }));
 
@@ -141,7 +141,7 @@ describe("VoiceLabPage", () => {
         return Response.json([
           {
             id: "voice_lipi_ml_en",
-            name: "Lipi ML English",
+            name: "Asha",
             runtimeId: "runtime_lipi_ml_tts",
             type: "builtin",
             language: "en-US",
@@ -153,7 +153,7 @@ describe("VoiceLabPage", () => {
           },
           {
             id: "voice_lipi_ml_ne",
-            name: "Lipi ML Nepali",
+            name: "Mina",
             runtimeId: "runtime_lipi_ml_tts",
             type: "builtin",
             language: "ne-NP",
@@ -172,7 +172,7 @@ describe("VoiceLabPage", () => {
 
     render(<VoiceLabPage />);
 
-    expect(await screen.findByRole("option", { name: "Lipi ML English - en-US" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Asha - en-US - Non-Nepali" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Text"), "Hello local voice");
     await user.click(screen.getByRole("button", { name: "Generate speech" }));
 
@@ -180,7 +180,7 @@ describe("VoiceLabPage", () => {
       "/api/tts/generate",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ text: "Hello local voice", voiceId: "voice_lipi_ml_en" }),
+        body: JSON.stringify({ text: "Hello local voice", voiceId: "voice_lipi_ml_ne" }),
       }),
     );
     expect(await screen.findByLabelText("Generated speech")).toHaveAttribute(
@@ -198,7 +198,7 @@ describe("VoiceLabPage", () => {
           ? Response.json([
               {
                 id: "voice_lipi_ml_en",
-                name: "Lipi ML English",
+                name: "Asha",
                 runtimeId: "runtime_lipi_ml_tts",
                 type: "builtin",
                 language: "en-US",
@@ -215,7 +215,7 @@ describe("VoiceLabPage", () => {
 
     render(<VoiceLabPage />);
 
-    await screen.findByRole("option", { name: "Lipi ML English - en-US" });
+    await screen.findByRole("option", { name: "Asha - en-US - Non-Nepali" });
     await user.type(screen.getByLabelText("Text"), "Hello");
     await user.click(screen.getByRole("button", { name: "Generate speech" }));
 
@@ -232,7 +232,7 @@ describe("VoiceLabPage", () => {
           ? Response.json([
               {
                 id: "voice_lipi_ml_en",
-                name: "Lipi ML English",
+                name: "Asha",
                 runtimeId: "runtime_lipi_ml_tts",
                 type: "builtin",
                 language: "en-US",
@@ -253,14 +253,14 @@ describe("VoiceLabPage", () => {
 
     render(<VoiceLabPage />);
 
-    await screen.findByRole("option", { name: "Lipi ML English - en-US" });
+    await screen.findByRole("option", { name: "Asha - en-US - Non-Nepali" });
     await user.type(screen.getByLabelText("Text"), "Hello");
     await user.click(screen.getByRole("button", { name: "Generate speech" }));
     await user.type(screen.getByLabelText("Text"), " after edit");
 
     speech.resolve(Response.json({ audioBase64: "UklGRg==", mimeType: "audio/wav" }));
 
-    expect(await screen.findByText('Generated from "Hello" with Lipi ML English')).toBeInTheDocument();
+    expect(await screen.findByText('Generated from "Hello" with Asha')).toBeInTheDocument();
   });
 
   it("loads sample history and prepends generated clips", async () => {
@@ -274,7 +274,7 @@ describe("VoiceLabPage", () => {
           return Response.json([
             {
               id: "voice_lipi_ml_en",
-              name: "Lipi ML English",
+              name: "Asha",
               runtimeId: "runtime_lipi_ml_tts",
               type: "builtin",
               language: "en-US",
@@ -292,7 +292,7 @@ describe("VoiceLabPage", () => {
             {
               id: "sample_old",
               voiceId: "voice_lipi_ml_en",
-              voiceName: "Lipi ML English",
+              voiceName: "Asha",
               text: "Previous sample",
               audioBase64: "UklGRg==",
               mimeType: "audio/wav",
@@ -304,7 +304,7 @@ describe("VoiceLabPage", () => {
         return Response.json({
           id: "sample_new",
           voiceId: "voice_lipi_ml_en",
-          voiceName: "Lipi ML English",
+          voiceName: "Asha",
           text: "New clip",
           audioBase64: "UklGRw==",
           mimeType: "audio/wav",
@@ -319,7 +319,7 @@ describe("VoiceLabPage", () => {
     await user.type(screen.getByLabelText("Text"), "New clip");
     await user.click(screen.getByRole("button", { name: "Generate speech" }));
 
-    expect(await screen.findByText('Generated from "New clip" with Lipi ML English')).toBeInTheDocument();
+    expect(await screen.findByText('Generated from "New clip" with Asha')).toBeInTheDocument();
     expect(screen.getAllByText("New clip").length).toBeGreaterThan(0);
   });
 
@@ -332,7 +332,7 @@ describe("VoiceLabPage", () => {
         return Response.json([
           {
             id: "voice_lipi_ml_en",
-            name: "Lipi ML English",
+            name: "Asha",
             runtimeId: "runtime_lipi_ml_tts",
             type: "builtin",
             language: "en-US",
@@ -399,6 +399,6 @@ describe("VoiceLabPage", () => {
 
     expect(await screen.findByText("Private Asha")).toBeInTheDocument();
     expect(screen.getByText("pending")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Private Asha - en-US" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Private Asha - en-US - Non-Nepali" })).toBeInTheDocument();
   });
 });

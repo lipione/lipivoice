@@ -1,0 +1,220 @@
+/**
+ * Piper TTS Adapter - Self-hosted Nepali speech synthesis
+ *
+ * Wraps local Piper HTTP service (https://github.com/rhasspy/piper)
+ * Supports Nepali voices trained by Google phoneme coverage.
+ *
+ * Service URL: http://localhost:8005 (configurable)
+ * Voice Models: ~/.local/share/piper/models/*.onnx
+ */
+
+import type { RuntimeHealthResult, TtsAdapter } from "./types";
+
+interface PiperAdapterOptions {
+  serviceUrl: string;           // e.g., http://localhost:8005
+  voiceModelsPath?: string;     // optional, for documentation
+  defaultVoice?: string;        // fallback if voice not found
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  now?: () => number;
+}
+
+interface PiperSynthesizeRequest {
+  text: string;
+  model: string;                // e.g., "ne_NP-google_medium"
+  outputFormat?: "wav" | "mp3";
+  speaker?: number;             // speaker ID, if multi-speaker model
+  noiseScale?: number;          // 0.0-1.0, default 0.667
+  lengthScale?: number;         // speed control, default 1.0
+}
+
+interface PiperSynthesizeResponse {
+  audioBase64: string;
+  mimeType: string;
+  durationMs?: number;
+  charactersPerSecond?: number;
+}
+
+interface PiperHealthResponse {
+  status: string;
+  models?: Array<{ name: string; language: string }>;
+}
+
+/**
+ * Mapping from voice profile IDs to Piper model names and speakers.
+ * This allows voice.voicePath to specify voice ID while adapter maps to actual model.
+ */
+const voiceProfileToModel: Record<string, { modelId: string; speaker?: number }> = {
+  "voice_piper_google_ne_low": {
+    modelId: "ne_NP-google_low",
+  },
+  "voice_piper_google_ne_medium": {
+    modelId: "ne_NP-google_medium",
+  },
+  "voice_piper_google_ne_high": {
+    modelId: "ne_NP-google_high",
+  },
+};
+
+export class PiperAdapter implements TtsAdapter {
+  private readonly serviceUrl: string;
+  private readonly defaultVoice: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
+  private readonly now: () => number;
+
+  constructor(options: PiperAdapterOptions) {
+    this.serviceUrl = options.serviceUrl.replace(/\/+$/, "");
+    this.defaultVoice = options.defaultVoice ?? "ne_NP-google_medium";
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.timeoutMs = options.timeoutMs ?? 30000;
+    this.now = options.now ?? Date.now;
+  }
+
+  async health(): Promise<RuntimeHealthResult> {
+    const startedAt = this.now();
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      try {
+        const response = await this.fetchImpl(`${this.serviceUrl}/health`, {
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        const latencyMs = this.now() - startedAt;
+
+        if (!response.ok) {
+          return {
+            status: "unavailable",
+            reason: `piper_health_check_failed_${response.status}`,
+            latencyMs,
+          };
+        }
+
+        // Optionally check that models are loaded
+        const body = (await response.json()) as PiperHealthResponse;
+        if (!body.models || body.models.length === 0) {
+          return {
+            status: "missing_model",
+            reason: "piper_no_models_loaded",
+            latencyMs,
+          };
+        }
+
+        return {
+          status: "healthy",
+          reason: null,
+          latencyMs,
+        };
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof Error && error.name === "AbortError") {
+          return {
+            status: "unavailable",
+            reason: "piper_service_timeout",
+            latencyMs: this.timeoutMs,
+          };
+        }
+
+        return {
+          status: "unavailable",
+          reason: "piper_service_unreachable",
+        };
+      }
+    } catch {
+      return {
+        status: "unavailable",
+        reason: "piper_health_check_error",
+      };
+    }
+  }
+
+  async synthesize(input: {
+    text: string;
+    voicePath: string;
+  }): Promise<{
+    audioBase64: string;
+    mimeType: string;
+    providerId?: string;
+    voiceId?: string;
+  }> {
+    const modelConfig = voiceProfileToModel[input.voicePath];
+    const modelId = modelConfig?.modelId ?? this.defaultVoice;
+
+    const synthesizeRequest: PiperSynthesizeRequest = {
+      text: input.text,
+      model: modelId,
+      outputFormat: "wav",
+      speaker: modelConfig?.speaker,
+      lengthScale: 1.0,
+      noiseScale: 0.667,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await this.fetchImpl(`${this.serviceUrl}/synthesize`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(synthesizeRequest),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(
+          `Piper synthesis failed with status ${response.status}: ${response.statusText}`
+        );
+      }
+
+      const result = (await response.json()) as PiperSynthesizeResponse;
+
+      if (!result.audioBase64) {
+        throw new Error("Piper response missing audioBase64");
+      }
+
+      return {
+        audioBase64: result.audioBase64,
+        mimeType: result.mimeType ?? "audio/wav",
+        providerId: "piper",
+        voiceId: input.voicePath,
+      };
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Piper synthesis timeout");
+      }
+
+      throw error instanceof Error
+        ? error
+        : new Error("Piper synthesis failed: unknown error");
+    }
+  }
+}
+
+/**
+ * Helper: Register Piper adapter with runtime adapters map
+ *
+ * Usage in socketDeps.ts:
+ *
+ *   const piper = new PiperAdapter({
+ *     serviceUrl: config.piperServiceUrl,
+ *   });
+ *
+ *   const ttsAdapters = {
+ *     piper,
+ *     google_tts: googleTts,
+ *   };
+ */
+export function createPiperAdapter(serviceUrl: string): PiperAdapter {
+  return new PiperAdapter({ serviceUrl });
+}

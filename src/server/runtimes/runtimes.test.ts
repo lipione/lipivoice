@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { detectSpeechTurn } from "./energyVad";
 import { GoogleCloudTtsAdapter } from "./googleCloudTts";
 import { mapRuntimeHealth } from "./health";
+import { GoogleGeminiAdapter } from "./googleGemini";
+import { IndicParlerHttpAdapter } from "./indicParlerHttp";
 import { LipiMlSttAdapter, LipiMlTtsAdapter } from "./lipiMl";
 import { OllamaAdapter } from "./ollama";
 import { OpenAICompatibleAdapter } from "./openAiCompatible";
@@ -166,7 +168,127 @@ describe("runtime adapters", () => {
         { role: "user", content: "Hello" },
       ],
       stream: false,
+      max_tokens: 96,
     });
+  });
+
+  it("trims repeated sentence loops from OpenAI-compatible chat completions", async () => {
+    const adapter = new OpenAICompatibleAdapter({
+      baseUrl: "http://vllm.test/v1",
+      fetchImpl: async () =>
+        Response.json({
+          choices: [
+            {
+              message: {
+                content:
+                  "हस्, पोलिसी नम्बर दिनुहोस्। हस्, पोलिसी नम्बर दिनुहोस्। हस्, पोलिसी नम्बर दिनुहोस्। हस्, पोलिसी नम्बर दिनुहोस्।",
+              },
+            },
+          ],
+        }),
+    });
+
+    await expect(
+      adapter.chat({
+        model: "gemma-4",
+        system: "Be concise.",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    ).resolves.toBe("हस्, पोलिसी नम्बर दिनुहोस्। हस्, पोलिसी नम्बर दिनुहोस्।");
+  });
+
+  it("guards unsupported OpenAI-compatible policy status claims", async () => {
+    const adapter = new OpenAICompatibleAdapter({
+      baseUrl: "http://vllm.test/v1",
+      fetchImpl: async () =>
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: "हस्, पोलिसी नं १२३४५ सक्रिय खः।",
+              },
+            },
+          ],
+        }),
+    });
+
+    await expect(
+      adapter.chat({
+        model: "gemma-4",
+        system: "Be concise.",
+        messages: [{ role: "user", content: "नमस्ते, बीमा पोलिसी नं १२३४५ को स्थिति के छ?" }],
+      }),
+    ).resolves.toBe(
+      "हस्, पोलिसी नं १२३४५ नोट गरिएको छ। स्थिति पुष्टि गर्न स्टाफले सिस्टममा जाँच गर्छन्, कृपया नाम र फोन नम्बर दिनुहोस्।",
+    );
+  });
+
+  it("posts Google Gemini chat with normalized model id and returns generated text", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-gemini-chat-"));
+    const credentialsPath = join(tempDir, "service-account.json");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        client_email: "lipivoice@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+    );
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new GoogleGeminiAdapter({
+      credentialsPath,
+      modelName: "google:gemini-2.5-flash",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "access-token", expires_in: 3600 });
+        }
+        if (String(url).endsWith("/v1beta/models/gemini-2.5-flash:generateContent")) {
+          return Response.json({ candidates: [{ content: { parts: [{ text: "नमस्ते" }] } }] });
+        }
+        return Response.json({ error: "unexpected" }, { status: 404 });
+      },
+      now: () => new Date("2026-06-01T00:00:00.000Z").getTime(),
+    });
+
+    const text = await adapter.chat({
+      model: "google:gemini-2.5-flash",
+      system: "You are concise.",
+      messages: [{ role: "user", content: "Hello" }],
+    });
+
+    expect(requests[1]?.url.endsWith("/v1beta/models/gemini-2.5-flash:generateContent")).toBe(true);
+    expect(text).toBe("नमस्ते");
+  });
+
+  it("reports healthy Gemini health when the configured model exists in the model list", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-gemini-health-"));
+    const credentialsPath = join(tempDir, "service-account.json");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        client_email: "lipivoice@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+    );
+    const adapter = new GoogleGeminiAdapter({
+      credentialsPath,
+      modelName: "google:gemini-2.5-flash",
+      fetchImpl: async (url) => {
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "access-token", expires_in: 3600 });
+        }
+        return Response.json({ models: [{ name: "models/gemini-2.5-flash" }] });
+      },
+      now: () => new Date("2026-06-01T00:00:00.000Z").getTime(),
+    });
+
+    await expect(adapter.health()).resolves.toMatchObject({ status: "healthy", reason: null });
   });
 
   it("reports healthy lipi-ml STT health when faster-whisper is loaded", async () => {
@@ -292,7 +414,7 @@ describe("runtime adapters", () => {
     const adapter = new GoogleCloudTtsAdapter({
       credentialsPath,
       languageCode: "ne-NP",
-      modelName: "gemini-3.1-flash-tts-preview",
+      modelName: "gemini-2.5-flash-tts",
       voiceName: "Kore",
       fetchImpl: async (url, init) => {
         requests.push({ url: String(url), init });
@@ -328,8 +450,132 @@ describe("runtime adapters", () => {
       voice: {
         languageCode: "ne-NP",
         name: "Kore",
-        model_name: "gemini-3.1-flash-tts-preview",
+        model_name: "gemini-2.5-flash-tts",
       },
+      audioConfig: { audioEncoding: "MP3" },
+    });
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("maps Google Gemini voice ids to the requested voice name", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-google-gemini-voice-map-test-"));
+    const credentialsPath = join(tempDir, "service-account.json");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        project_id: "lipikosh",
+        client_email: "lipivoice@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+    );
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new GoogleCloudTtsAdapter({
+      credentialsPath,
+      languageCode: "ne-NP",
+      modelName: "gemini-2.5-flash-tts",
+      voiceName: "Kore",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "access-token", expires_in: 3600 });
+        }
+        if (String(url) === "https://texttospeech.googleapis.com/v1/text:synthesize") {
+          return Response.json({ audioContent: Buffer.from("puck-mp3-data").toString("base64") });
+        }
+        return Response.json({ error: "unexpected" }, { status: 404 });
+      },
+      now: () => new Date("2026-06-01T00:00:00.000Z").getTime(),
+    });
+
+    await expect(adapter.synthesize({ text: "नमस्ते", voicePath: "voice_google_gemini_puck_ne" })).resolves.toEqual({
+      audioBase64: Buffer.from("puck-mp3-data").toString("base64"),
+      mimeType: "audio/mpeg",
+    });
+
+    expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
+      voice: {
+        languageCode: "ne-NP",
+        name: "Puck",
+        model_name: "gemini-2.5-flash-tts",
+      },
+    });
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("falls back to standard Google TTS when Gemini TTS prediction is denied", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lipivoice-google-gemini-fallback-test-"));
+    const credentialsPath = join(tempDir, "service-account.json");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        project_id: "lipikosh",
+        client_email: "lipivoice@example.iam.gserviceaccount.com",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+    );
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    let synthesizeCalls = 0;
+    const adapter = new GoogleCloudTtsAdapter({
+      credentialsPath,
+      languageCode: "ne-NP",
+      modelName: "gemini-2.5-flash-tts",
+      voiceName: "Kore",
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        if (String(url) === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "access-token", expires_in: 3600 });
+        }
+        if (String(url) === "https://texttospeech.googleapis.com/v1/text:synthesize") {
+          synthesizeCalls += 1;
+          return synthesizeCalls === 1
+            ? Response.json(
+                {
+                  error: {
+                    status: "PERMISSION_DENIED",
+                    message: "Permission 'aiplatform.endpoints.predict' denied.",
+                  },
+                },
+                { status: 403 },
+              )
+            : Response.json({ audioContent: Buffer.from("standard-google-mp3").toString("base64") });
+        }
+        return Response.json({ error: "unexpected" }, { status: 404 });
+      },
+      now: () => new Date("2026-06-01T00:00:00.000Z").getTime(),
+    });
+
+    await expect(adapter.synthesize({ text: "नमस्ते", voicePath: "voice_google_tts_ne" })).resolves.toEqual({
+      audioBase64: Buffer.from("standard-google-mp3").toString("base64"),
+      mimeType: "audio/mpeg",
+    });
+
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://oauth2.googleapis.com/token",
+      "https://texttospeech.googleapis.com/v1/text:synthesize",
+      "https://texttospeech.googleapis.com/v1/text:synthesize",
+    ]);
+    expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
+      input: {
+        prompt: "Say the following.",
+        text: "नमस्ते",
+      },
+      voice: {
+        languageCode: "ne-NP",
+        name: "Kore",
+        model_name: "gemini-2.5-flash-tts",
+      },
+    });
+    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
+      input: { text: "नमस्ते" },
+      voice: { languageCode: "ne-NP" },
       audioConfig: { audioEncoding: "MP3" },
     });
 
@@ -365,6 +611,46 @@ describe("runtime adapters", () => {
     await expect(catalog.health("coqui_vits")).resolves.toEqual({ status: "healthy", reason: null });
 
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("synthesizes Nepali speech through the Indic Parler HTTP service", async () => {
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const adapter = new IndicParlerHttpAdapter({
+      endpoint: "http://parler.test",
+      description: "Amrita speaks clearly in Nepali at a steady call-center pace.",
+      fetcher: async (url, init) => {
+        requests.push({ url: String(url), init });
+
+        if (String(url).endsWith("/health")) {
+          return Response.json({ status: "ok", model_loaded: true });
+        }
+
+        return new Response(Buffer.from("wav-data"), {
+          headers: { "content-type": "audio/wav" },
+        });
+      },
+    });
+
+    await expect(adapter.health()).resolves.toEqual({ status: "healthy", reason: null });
+    await expect(
+      adapter.synthesize({
+        text: "नमस्ते",
+        voicePath: "voice_indic_parler_ne_amrita",
+      }),
+    ).resolves.toEqual({
+      audioBase64: Buffer.from("wav-data").toString("base64"),
+      mimeType: "audio/wav",
+      providerId: "indic_parler",
+      voiceId: "voice_indic_parler_ne_amrita",
+    });
+
+    expect(requests[1]?.url).toBe("http://parler.test/tts");
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      text: "नमस्ते",
+      language: "ne",
+      voice: "voice_indic_parler_ne_amrita",
+      description: "Amrita speaks clearly in Nepali at a steady call-center pace.",
+    });
   });
 
   it("reports whisper runtime_not_configured when paths are missing", async () => {

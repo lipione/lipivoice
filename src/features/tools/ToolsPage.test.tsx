@@ -22,6 +22,13 @@ const tools = [
   },
 ];
 
+const runnableTools = [
+  {
+    ...tools[0],
+    url: "https://api.lipi.example/orders",
+  },
+];
+
 describe("ToolsPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -35,7 +42,17 @@ describe("ToolsPage", () => {
     expect(await screen.findAllByText("Order lookup")).not.toHaveLength(0);
     expect(screen.getByText("GET")).toBeInTheDocument();
     expect(screen.getByText("https://example.com/orders")).toBeInTheDocument();
+    expect(screen.getByText("Placeholder")).toBeInTheDocument();
     expect(screen.getByText("orderId")).toBeInTheDocument();
+  });
+
+  it("blocks execution for placeholder example.com tools", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(tools)));
+
+    render(<ToolsPage />);
+
+    expect(await screen.findByText(/Placeholder endpoint/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run tool" })).toBeDisabled();
   });
 
   it("creates a tool and appends it to the list", async () => {
@@ -48,7 +65,7 @@ describe("ToolsPage", () => {
         return Response.json(JSON.parse(String(init.body)));
       }
 
-      return Response.json(tools);
+      return Response.json(runnableTools);
     });
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -116,7 +133,7 @@ describe("ToolsPage", () => {
         });
       }
 
-      return Response.json(tools);
+      return Response.json(runnableTools);
     });
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -143,6 +160,6 @@ describe("ToolsPage", () => {
 
     render(<ToolsPage />);
 
-    expect(await screen.findByText("Request failed: 500")).toBeInTheDocument();
+    expect(await screen.findByText("internal_error")).toBeInTheDocument();
   });
 });

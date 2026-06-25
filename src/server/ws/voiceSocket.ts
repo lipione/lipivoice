@@ -7,6 +7,7 @@ export interface VoiceSocketDeps {
   checkReady(context?: VoiceSocketSessionContext): Promise<{ ready: true } | { ready: false; reason: string }>;
   processAudio(input: { mimeType: string; audioBase64: string }, context?: VoiceSocketSessionContext): Promise<{
     events: VoiceSocketEvent[];
+    skippedReason?: "audio_decode_failed" | "no_speech_detected";
   }>;
   createCallSession?(context?: VoiceSocketSessionContext): Promise<VoiceSocketCallSession | null>;
   validateSessionToken?(token: string): boolean | VoiceSocketSessionContext | null;
@@ -240,13 +241,19 @@ async function handleMessage(
       { mimeType: message.mimeType, audioBase64: message.audioBase64 },
       state.sessionContext,
     );
+    if (result.skippedReason === "audio_decode_failed" || result.skippedReason === "no_speech_detected") {
+      sendStatus(webSocket, state.recordEvent, "listening");
+      return;
+    }
+
     sendStatus(webSocket, state.recordEvent, "speaking");
 
     for (const event of result.events) {
       sendJson(webSocket, event);
       state.recordEvent(recordedEvent(event));
     }
-  } catch {
+  } catch (error) {
+    console.error("Voice processing failed", error);
     sendStatus(webSocket, state.recordEvent, "failed", "processing_failed");
     await state.finishCall({ status: "failed", failureReason: "processing_failed" });
   } finally {

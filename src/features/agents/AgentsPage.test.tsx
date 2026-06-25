@@ -100,7 +100,7 @@ function stubAgentsApi({
     voicesResponse = [
       {
         id: "voice_piper_amy",
-        name: "Piper Amy",
+        name: "Asha",
         runtimeId: "runtime_piper",
         type: "builtin",
         language: "en-US",
@@ -266,7 +266,7 @@ describe("AgentsPage", () => {
         return Response.json([
           {
             id: "voice_piper_amy",
-            name: "Piper Amy",
+            name: "Asha",
             runtimeId: "runtime_piper",
             type: "builtin",
             language: "en-US",
@@ -324,7 +324,7 @@ describe("AgentsPage", () => {
 
     render(<AgentsPage />);
 
-    expect(await screen.findByText("Request failed: 500")).toBeInTheDocument();
+    expect(await screen.findByText("internal_error")).toBeInTheDocument();
   });
 
   it("shows an empty agent list state", async () => {

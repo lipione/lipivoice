@@ -22,6 +22,8 @@ interface SettingsForm {
   recordingRetentionDays: number;
   auditLogRetentionDays: number;
   realtimeSessionTtlSeconds: number;
+  sipTrunk: WorkspaceSettings["sipTrunk"];
+  sipSecretPassword: string;
 }
 
 export function SettingsPage() {
@@ -75,12 +77,26 @@ export function SettingsPage() {
       recordingRetentionDays: form.recordingRetentionDays,
       auditLogRetentionDays: form.auditLogRetentionDays,
       realtimeSessionTtlSeconds: form.realtimeSessionTtlSeconds,
+      sipTrunk: {
+        ...form.sipTrunk,
+        provider: form.sipTrunk.provider.trim(),
+        sipServer: form.sipTrunk.sipServer.trim(),
+        outboundProxy: form.sipTrunk.outboundProxy.trim(),
+        domain: form.sipTrunk.domain.trim(),
+        username: form.sipTrunk.username.trim(),
+        authUsername: form.sipTrunk.authUsername.trim(),
+        fromNumber: form.sipTrunk.fromNumber.trim(),
+      },
       updatedAt: new Date().toISOString(),
     };
+    const sipSecretPassword = form.sipSecretPassword.trim();
 
     setSaveState("saving");
     try {
       const saved = await postJson<WorkspaceSettings>("/api/settings", nextSettings);
+      if (sipSecretPassword) {
+        await postJson("/api/settings/sip-secret", { password: sipSecretPassword });
+      }
       setSettings(saved);
       setForm(formFromSettings(saved));
       setSaveState("saved");
@@ -122,6 +138,10 @@ export function SettingsPage() {
   }
 
   const canSave = form.workspaceName.trim() !== "" && form.recordingRetentionDays > 0 && form.auditLogRetentionDays > 0;
+  const updateSipTrunk = (patch: Partial<WorkspaceSettings["sipTrunk"]>) => {
+    setSaveState("idle");
+    setForm((current) => current && { ...current, sipTrunk: { ...current.sipTrunk, ...patch } });
+  };
 
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-4" aria-label="Settings">
@@ -271,6 +291,134 @@ export function SettingsPage() {
               </label>
             </div>
 
+            <div className="grid gap-4 rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold tracking-normal">SIP trunk</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Store non-secret SIP routing details for LiveKit outbound calls.</p>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    aria-label="Enable SIP trunk"
+                    className="h-4 w-4 rounded border-border"
+                    checked={form.sipTrunk.enabled}
+                    onChange={(event) => updateSipTrunk({ enabled: event.target.checked })}
+                  />
+                  <span>Enabled</span>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-provider">SIP provider</Label>
+                  <Input
+                    id="settings-sip-provider"
+                    value={form.sipTrunk.provider}
+                    placeholder="ntc_easy_phone"
+                    onChange={(event) => updateSipTrunk({ provider: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-mode">SIP mode</Label>
+                  <select
+                    id="settings-sip-mode"
+                    aria-label="SIP mode"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={form.sipTrunk.mode}
+                    onChange={(event) => updateSipTrunk({ mode: event.target.value as WorkspaceSettings["sipTrunk"]["mode"] })}
+                  >
+                    <option value="asterisk">Asterisk gateway</option>
+                    <option value="direct">Direct trunk</option>
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-transport">SIP transport</Label>
+                  <select
+                    id="settings-sip-transport"
+                    aria-label="SIP transport"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={form.sipTrunk.transport}
+                    onChange={(event) => updateSipTrunk({ transport: event.target.value as WorkspaceSettings["sipTrunk"]["transport"] })}
+                  >
+                    <option value="udp">UDP</option>
+                    <option value="tcp">TCP</option>
+                    <option value="tls">TLS</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-server">SIP server</Label>
+                  <Input
+                    id="settings-sip-server"
+                    value={form.sipTrunk.sipServer}
+                    placeholder="ims.ntc.net.np"
+                    onChange={(event) => updateSipTrunk({ sipServer: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-proxy">Outbound proxy</Label>
+                  <Input
+                    id="settings-sip-proxy"
+                    value={form.sipTrunk.outboundProxy}
+                    placeholder="202.70.74.178:5060"
+                    onChange={(event) => updateSipTrunk({ outboundProxy: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-domain">SIP domain</Label>
+                  <Input
+                    id="settings-sip-domain"
+                    value={form.sipTrunk.domain}
+                    placeholder="ims.ntc.net.np"
+                    onChange={(event) => updateSipTrunk({ domain: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-from-number">SIP from number</Label>
+                  <Input
+                    id="settings-sip-from-number"
+                    value={form.sipTrunk.fromNumber}
+                    placeholder="+97760400011"
+                    onChange={(event) => updateSipTrunk({ fromNumber: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-user-id">SIP user ID</Label>
+                  <Input
+                    id="settings-sip-user-id"
+                    value={form.sipTrunk.username}
+                    placeholder="+97760400011"
+                    onChange={(event) => updateSipTrunk({ username: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-auth-username">SIP auth username</Label>
+                  <Input
+                    id="settings-sip-auth-username"
+                    value={form.sipTrunk.authUsername}
+                    placeholder="+97760400011@ims.ntc.net.np"
+                    onChange={(event) => updateSipTrunk({ authUsername: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="settings-sip-password">SIP password</Label>
+                  <Input
+                    id="settings-sip-password"
+                    type="password"
+                    value={form.sipSecretPassword}
+                    autoComplete="new-password"
+                    onChange={(event) => {
+                      setSaveState("idle");
+                      setForm((current) => current && { ...current, sipSecretPassword: event.target.value });
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
             {saveState === "saved" ? (
               <Badge variant="success">Settings saved</Badge>
             ) : saveState === "failed" ? (
@@ -309,6 +457,12 @@ export function SettingsPage() {
                 label="Audit retention"
                 value={`${form.auditLogRetentionDays} days`}
                 tone="outline"
+              />
+              <StatusRow
+                icon={<ShieldCheck aria-hidden="true" />}
+                label="SIP trunk"
+                value={form.sipTrunk.enabled ? `${form.sipTrunk.mode} enabled` : "not configured"}
+                tone={form.sipTrunk.enabled ? "warning" : "outline"}
               />
             </CardContent>
           </Card>
@@ -350,6 +504,8 @@ function formFromSettings(settings: WorkspaceSettings): SettingsForm {
     recordingRetentionDays: settings.recordingRetentionDays,
     auditLogRetentionDays: settings.auditLogRetentionDays,
     realtimeSessionTtlSeconds: settings.realtimeSessionTtlSeconds,
+    sipTrunk: settings.sipTrunk,
+    sipSecretPassword: "",
   };
 }
 

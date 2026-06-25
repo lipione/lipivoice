@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Bot, ListChecks, Mic } from "lucide-react";
+import { Activity, CalendarClock, Headset, ListChecks, Megaphone, PhoneCall, TicketCheck } from "lucide-react";
 
 import { getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ModelRuntime } from "@/domain/types";
+import type { Agent, Appointment, Call, Campaign, Customer, ModelRuntime, Ticket, TransferRecord } from "@/domain/types";
 
 type RuntimeSummary = {
   banner: string;
@@ -14,29 +14,27 @@ type RuntimeSummary = {
   badge: string;
 };
 
-const staticMetrics = [
-  {
-    label: "Active sessions",
-    value: "0",
-    detail: "No live browser calls",
-    icon: Mic,
-    badge: "Idle",
-  },
-  {
-    label: "Calls today",
-    value: "0",
-    detail: "Phone route is simulated",
-    icon: ListChecks,
-    badge: "Local",
-  },
-  {
-    label: "Configured agents",
-    value: "1",
-    detail: "Default voice agent",
-    icon: Bot,
-    badge: "Draft",
-  },
-];
+interface DashboardData {
+  runtimes: Pick<ModelRuntime, "id" | "kind" | "configuredState" | "healthStatus">[];
+  calls: Call[];
+  agents: Agent[];
+  customers: Customer[];
+  tickets: Ticket[];
+  appointments: Appointment[];
+  transfers: TransferRecord[];
+  campaigns: Campaign[];
+}
+
+const emptyDashboardData: DashboardData = {
+  runtimes: [],
+  calls: [],
+  agents: [],
+  customers: [],
+  tickets: [],
+  appointments: [],
+  transfers: [],
+  campaigns: [],
+};
 
 const loadingRuntimeSummary: RuntimeSummary = {
   banner: "Runtime checking",
@@ -55,35 +53,43 @@ const errorRuntimeSummary: RuntimeSummary = {
 };
 
 export function OverviewPage() {
-  const [runtimes, setRuntimes] = useState<Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[]>([]);
-  const [isLoadingRuntimes, setIsLoadingRuntimes] = useState(true);
-  const [runtimeError, setRuntimeError] = useState(false);
+  const [dashboardData, setDashboardData] = useState<DashboardData>(emptyDashboardData);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
 
-    async function loadRuntimes() {
-      setIsLoadingRuntimes(true);
-      setRuntimeError(false);
+    async function loadDashboard() {
+      setIsLoading(true);
+      setDashboardError(false);
 
       try {
-        const nextRuntimes =
-          await getJson<Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[]>("/api/model-runtimes");
+        const [runtimes, calls, agents, customers, tickets, appointments, transfers, campaigns] = await Promise.all([
+          getJson<Pick<ModelRuntime, "id" | "kind" | "configuredState" | "healthStatus">[]>("/api/model-runtimes"),
+          getJson<Call[]>("/api/calls"),
+          getJson<Agent[]>("/api/agents"),
+          getJson<Customer[]>("/api/customers"),
+          getJson<Ticket[]>("/api/tickets"),
+          getJson<Appointment[]>("/api/appointments"),
+          getJson<TransferRecord[]>("/api/transfers"),
+          getJson<Campaign[]>("/api/campaigns"),
+        ]);
         if (!isCurrent) return;
 
-        setRuntimes(nextRuntimes);
+        setDashboardData({ runtimes, calls, agents, customers, tickets, appointments, transfers, campaigns });
       } catch {
         if (!isCurrent) return;
 
-        setRuntimeError(true);
+        setDashboardError(true);
       } finally {
         if (isCurrent) {
-          setIsLoadingRuntimes(false);
+          setIsLoading(false);
         }
       }
     }
 
-    void loadRuntimes();
+    void loadDashboard();
 
     return () => {
       isCurrent = false;
@@ -91,11 +97,13 @@ export function OverviewPage() {
   }, []);
 
   const runtimeSummary = useMemo(() => {
-    if (isLoadingRuntimes) return loadingRuntimeSummary;
-    if (runtimeError) return errorRuntimeSummary;
+    if (isLoading) return loadingRuntimeSummary;
+    if (dashboardError) return errorRuntimeSummary;
 
-    return summarizeRuntimes(runtimes);
-  }, [isLoadingRuntimes, runtimeError, runtimes]);
+    return summarizeRuntimes(dashboardData.runtimes);
+  }, [isLoading, dashboardError, dashboardData.runtimes]);
+
+  const operatingSummary = useMemo(() => summarizeOperations(dashboardData), [dashboardData]);
 
   const metrics = [
     {
@@ -105,17 +113,37 @@ export function OverviewPage() {
       icon: Activity,
       badge: runtimeSummary.badge,
     },
-    ...staticMetrics,
+    {
+      label: "Active calls",
+      value: operatingSummary.activeCalls.toString(),
+      detail: `${operatingSummary.callsToday} calls today`,
+      icon: PhoneCall,
+      badge: operatingSummary.activeCalls > 0 ? "Live" : "Idle",
+    },
+    {
+      label: "Open tickets",
+      value: operatingSummary.openTickets.toString(),
+      detail: `${operatingSummary.urgentTickets} urgent`,
+      icon: TicketCheck,
+      badge: operatingSummary.openTickets > 0 ? "Queue" : "Clear",
+    },
+    {
+      label: "Renewal work",
+      value: operatingSummary.runningCampaigns.toString(),
+      detail: `${operatingSummary.pendingCallbacks} callbacks scheduled`,
+      icon: Megaphone,
+      badge: `${operatingSummary.totalCustomers} customers`,
+    },
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       <section className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold tracking-normal">Operational summary</h2>
+            <h2 className="text-base font-semibold tracking-normal">Today at the desk</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Self-hosted voice-agent runtime status and current activity.
+              Live voice readiness, renewal work, and customer follow-up queues.
             </p>
           </div>
           <Badge variant={runtimeSummary.badgeVariant}>{runtimeSummary.banner}</Badge>
@@ -144,36 +172,123 @@ export function OverviewPage() {
         })}
       </section>
 
-      <section className="py-2" aria-labelledby="current-runbook-title">
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
-          <div className="min-w-0">
-            <h3 id="current-runbook-title" className="text-sm font-semibold tracking-normal">
-              Current runbook
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Use the sidebar to configure agents, test web voice, review calls, and inspect usage.
-            </p>
-          </div>
-          <div className="grid gap-2 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Inference</span>
-              <span className="truncate font-medium">Open model</span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Speech</span>
-              <span className="truncate font-medium">Whisper / Piper</span>
-            </div>
-          </div>
-        </div>
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]" aria-labelledby="current-runbook-title">
+        <Card>
+          <CardHeader>
+            <CardTitle id="current-runbook-title">Operator runbook</CardTitle>
+            <CardDescription>Use this order during a normal shift.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            <RunbookStep
+              icon={Headset}
+              title="Answer and qualify"
+              body="Start in Web Voice or Calls. Confirm name, phone, policy number, and reason."
+            />
+            <RunbookStep
+              icon={CalendarClock}
+              title="Route follow-up"
+              body="Use Operations to review tickets, callbacks, and transfers created during calls."
+            />
+            <RunbookStep
+              icon={Megaphone}
+              title="Renewal batch"
+              body="Build a renewal campaign from due policies, then launch once SIP is configured."
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Queue mix</CardTitle>
+            <CardDescription>Current work waiting for staff review.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            <QueueRow label="Customers" value={operatingSummary.totalCustomers} />
+            <QueueRow label="Tickets" value={operatingSummary.openTickets} />
+            <QueueRow label="Callbacks" value={operatingSummary.pendingCallbacks} />
+            <QueueRow label="Transfers" value={operatingSummary.queuedTransfers} />
+            <QueueRow label="Agents" value={dashboardData.agents.length} />
+          </CardContent>
+        </Card>
       </section>
     </div>
   );
 }
 
+function RunbookStep({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof ListChecks;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background p-3">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+        {title}
+      </div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
+function QueueRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-2 last:border-b-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function summarizeOperations(data: DashboardData) {
+  const today = new Date().toDateString();
+  const activeCalls = data.calls.filter((call) => call.status === "connected").length;
+  const callsToday = data.calls.filter((call) => new Date(call.startedAt).toDateString() === today).length;
+  const openTickets = data.tickets.filter((ticket) => ticket.status === "open" || ticket.status === "in_progress").length;
+  const urgentTickets = data.tickets.filter((ticket) => ticket.priority === "urgent" && ticket.status !== "closed").length;
+  const pendingCallbacks = data.appointments.filter((appointment) => appointment.status === "scheduled").length;
+  const queuedTransfers = data.transfers.filter((transfer) => transfer.status === "queued").length;
+  const runningCampaigns = data.campaigns.filter((campaign) => campaign.status === "running").length;
+
+  return {
+    activeCalls,
+    callsToday,
+    openTickets,
+    urgentTickets,
+    pendingCallbacks,
+    queuedTransfers,
+    runningCampaigns,
+    totalCustomers: data.customers.length,
+  };
+}
+
 function summarizeRuntimes(
-  runtimes: Pick<ModelRuntime, "kind" | "configuredState" | "healthStatus">[],
+  runtimes: Pick<ModelRuntime, "id" | "kind" | "configuredState" | "healthStatus">[],
 ): RuntimeSummary {
   const speechRuntimes = runtimes.filter((runtime) => runtime.kind === "stt" || runtime.kind === "tts");
+  const configuredSpeechRuntimes = speechRuntimes.filter(
+    (runtime) =>
+      runtime.configuredState === "configured" &&
+      runtime.healthStatus !== "failed" &&
+      runtime.healthStatus !== "unavailable" &&
+      runtime.healthStatus !== "missing_model",
+  );
+  const hasConfiguredStt = configuredSpeechRuntimes.some((runtime) => runtime.kind === "stt");
+  const hasConfiguredTts = configuredSpeechRuntimes.some((runtime) => runtime.kind === "tts");
+
+  if (hasConfiguredStt && hasConfiguredTts) {
+    return {
+      banner: "Runtime ready",
+      badgeVariant: "success",
+      value: "Ready",
+      detail: "Speech runtimes configured",
+      badge: "Healthy",
+    };
+  }
 
   if (
     speechRuntimes.length === 0 ||

@@ -50,14 +50,16 @@ Public references reviewed:
 - https://docs.coqui.ai/en/stable/models/xtts.html
 - https://docs.cloud.google.com/text-to-speech/docs/gemini-tts
 
-## Current Implementation Status - 2026-06-01
+## Current Implementation Status - 2026-06-02
 
 The first runnable slice is implemented and deployed on the remote GPU server under the remote preset:
 
 - Local preset: Ollama LLM, whisper.cpp STT, Piper TTS, and energy VAD.
-- Remote preset: vLLM LLM, `lipi-ml` faster-whisper STT, `lipi-ml` Piper TTS, and energy VAD.
+- Remote preset: vLLM and Gemini LLM records, `lipi-ml` faster-whisper and Google STT records, Google TTS and `lipi-ml` Piper TTS records, and energy VAD.
 - Persistence: SQLite seeded with agents, voices, runtimes, calls, tools, knowledge base records, eval records, and usage records.
 - Voice Lab: generates speech through the configured TTS adapter and exposes a provider benchmark catalog.
+- Calls: supports API demo calls, simulated text turns with Nepali assistant text, Google TTS audio for selected Google voices, LiveKit web-call room creation, and runtime stack selection.
+- LiveKit: room creation, token issue, worker dispatch, browser WebSocket upgrade, and worker `listening` events are deployed. Full hosted browser microphone conversation is still blocked.
 - Remote model catalog: reads `/models/tts/manifest.json` in Docker, mapped from `/data/models/lipivoice/tts/manifest.json` on the host.
 - Remote Google secrets: mounted read-only from `/data/secrets/lipivoice/google` into `/run/secrets/lipivoice/google`.
 
@@ -65,7 +67,7 @@ Current Nepali TTS provider readiness:
 
 | Provider | Current status | Next implementation work |
 | --- | --- | --- |
-| Google Cloud TTS | Configured for Gemini-TTS Preview with `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`, `GOOGLE_TTS_MODEL=gemini-3.1-flash-tts-preview`, and `GOOGLE_TTS_VOICE_NE=Kore`; remote health is `healthy`, but synthesis currently returns `provider_synthesis_failed`. | Grant the service account `aiplatform.endpoints.predict`, typically through `roles/aiplatform.user`, and keep credentials server-side only. |
+| Google Cloud TTS | Configured with `GOOGLE_TTS_LANGUAGE_CODE=ne-NP`, `GOOGLE_TTS_MODEL=gemini-2.5-flash-tts`, and `GOOGLE_TTS_VOICE_NE=Kore`; simulated turns can generate MP3 audio through the selected Google voice. | Keep service-account IAM scoped to Vertex AI and speech/TTS permissions; verify live browser calls publish Google TTS audio back through LiveKit. |
 | Indic Parler TTS | `license_required` because gated Hugging Face access or token acceptance is still unresolved. | Add accepted HF token, download model files, then wire an inference adapter. |
 | OmniVoice | Catalog health is `healthy`; benchmark returns `provider_adapter_not_connected`. | Implement the OmniVoice inference runner and expose generated audio through the benchmark path. |
 | Chatterbox Nepali | `license_required` because the Nepali model is gated. | Accept license terms, download with HF token, then wire cloning-capable inference. |
@@ -84,6 +86,16 @@ Realtime browser voice path:
 5. Local/self-hosted LLM generates the assistant response.
 6. TTS streams audio chunks back to the browser.
 7. The UI receives normalized call, transcript, audio, latency, and tool events.
+
+The newer Calls page live-call path uses LiveKit instead of this raw WebSocket path:
+
+1. Browser requests `/api/livekit/web-call/start`.
+2. API creates a `web` call record, LiveKit room, browser token, and explicit worker dispatch.
+3. Browser joins LiveKit and publishes microphone audio.
+4. The Python worker loads agent config from `/api/worker/session-config`.
+5. Worker uses Google STT, Gemini on Vertex AI, Google TTS, Silero VAD, and LiveKit turn handling.
+6. Worker posts normalized events back through `/api/worker/calls/:id/events`.
+7. The current production gap is reliable final transcript and assistant audio emission for live browser input.
 
 Frontend modules:
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AudioWaveform, FlaskConical, History, ShieldCheck } from "lucide-react";
 
-import { getJson } from "@/client/api";
+import { apiPath, authHeaders, getJson } from "@/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { ConsentRecord, RuntimeHealthStatus, TtsBenchmarkResult, TtsProvider, Voice, VoiceSample } from "@/domain/types";
+import { formatVoiceOption, sortVoicesForDisplay } from "@/domain/voiceLabels";
 
 interface TtsResponse {
   audioBase64: string;
@@ -53,8 +54,9 @@ export function VoiceLabPage() {
         const nextVoices = await getJson<Voice[]>("/api/voices");
         if (!isCurrent) return;
 
-        setVoices(nextVoices);
-        setVoiceId((currentVoiceId) => currentVoiceId || nextVoices[0]?.id || "");
+        const displayVoices = sortVoicesForDisplay(nextVoices);
+        setVoices(displayVoices);
+        setVoiceId((currentVoiceId) => currentVoiceId || displayVoices[0]?.id || "");
       } catch {
         if (isCurrent) {
           setError("voices_load_failed");
@@ -102,9 +104,9 @@ export function VoiceLabPage() {
     setAudio(null);
 
     try {
-      const response = await fetch("/api/tts/generate", {
+      const response = await fetch(apiPath("/api/tts/generate"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ text: submittedText, voiceId: submittedVoiceId }),
       });
       const body = (await response.json()) as TtsResponse | { code?: string };
@@ -135,9 +137,9 @@ export function VoiceLabPage() {
     setCloneError(null);
 
     try {
-      const response = await fetch("/api/voice-clones", {
+      const response = await fetch(apiPath("/api/voice-clones"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify(cloneForm),
       });
       const body = (await response.json()) as VoiceCloneResponse | { code?: string };
@@ -169,9 +171,9 @@ export function VoiceLabPage() {
     setBenchmarkResult(null);
 
     try {
-      const response = await fetch("/api/tts/benchmark", {
+      const response = await fetch(apiPath("/api/tts/benchmark"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ providerId, text: submittedText }),
       });
       const body = (await response.json()) as TtsBenchmarkResult | { code?: string };
@@ -204,11 +206,11 @@ export function VoiceLabPage() {
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-4" aria-label="Voice Lab">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold tracking-normal">Local TTS lab</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Generate speech through the configured Piper runtime.</p>
+          <h2 className="text-base font-semibold tracking-normal">LipiVoice lab</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Generate and compare Nepali speech through the configured LipiVoice pipeline.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">Piper</Badge>
+          <Badge variant="outline">LipiVoice</Badge>
           <Badge variant="secondary">{samples.length} samples</Badge>
         </div>
       </div>
@@ -216,8 +218,8 @@ export function VoiceLabPage() {
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
           <div>
-            <CardTitle>Nepali TTS providers</CardTitle>
-            <CardDescription>Open-source provider readiness and benchmark path</CardDescription>
+            <CardTitle>Nepali voice providers</CardTitle>
+            <CardDescription>LipiVoice provider readiness and benchmark path</CardDescription>
           </div>
           <FlaskConical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </CardHeader>
@@ -330,7 +332,7 @@ export function VoiceLabPage() {
                   ) : null}
                   {voices.map((voice) => (
                     <option key={voice.id} value={voice.id}>
-                      {voice.name} - {voice.language}
+                      {formatVoiceOption(voice)}
                     </option>
                   ))}
                 </select>
@@ -458,7 +460,9 @@ export function VoiceLabPage() {
                 <div key={sample.id} className="grid gap-2 rounded-md border border-border p-3">
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium">{sample.text}</p>
-                    <Badge variant="outline">{sample.voiceName}</Badge>
+                    <Badge variant="outline">
+                      {sample.voiceName}
+                    </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">{sample.createdAt}</p>
                   <audio

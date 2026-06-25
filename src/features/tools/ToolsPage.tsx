@@ -105,6 +105,10 @@ export function ToolsPage() {
 
   async function runSelectedTool() {
     if (!selectedTool) return;
+    if (isPlaceholderTool(selectedTool)) {
+      setExecuteState("failed");
+      return;
+    }
 
     let parsedArgs: Record<string, unknown>;
     try {
@@ -192,7 +196,10 @@ export function ToolsPage() {
                         <p className="truncate text-xs text-muted-foreground">{tool.description}</p>
                       </div>
                     </div>
-                    <Badge variant="secondary">{tool.method}</Badge>
+                    <div className="flex items-center gap-2">
+                      {isPlaceholderTool(tool) ? <Badge variant="warning">Placeholder</Badge> : null}
+                      <Badge variant="secondary">{tool.method}</Badge>
+                    </div>
                   </div>
                   <p className="break-all rounded bg-muted px-2 py-1 text-xs text-muted-foreground">{tool.url}</p>
                   <div className="flex flex-wrap gap-2">
@@ -394,7 +401,16 @@ export function ToolsPage() {
                       }}
                     />
                   </div>
-                  <Button type="button" onClick={() => void runSelectedTool()} disabled={executeState === "saving"}>
+                  {isPlaceholderTool(selectedTool) ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                      Placeholder endpoint. Replace the example.com URL before running this tool.
+                    </p>
+                  ) : null}
+                  <Button
+                    type="button"
+                    onClick={() => void runSelectedTool()}
+                    disabled={executeState === "saving" || isPlaceholderTool(selectedTool)}
+                  >
                     <Play aria-hidden="true" />
                     {executeState === "saving" ? "Running..." : "Run tool"}
                   </Button>
@@ -481,6 +497,10 @@ function formatResponseBody(body: string | undefined) {
   }
 
   return body;
+}
+
+function isPlaceholderTool(tool: Tool) {
+  return /^https?:\/\/(?:www\.)?example\.com(?:\/|$)/i.test(tool.url);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

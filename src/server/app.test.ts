@@ -1,10 +1,88 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultWorkspace } from "@/domain/defaults";
+import { createDefaultWorkspace, createRemoteWorkspace } from "@/domain/defaults";
 import { createAppContextForTest, createAppForTest } from "./app";
 import { loadServerConfig } from "./config";
 
 describe("server app", () => {
+  it("requires the admin token when configured", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      adminToken: "admin-token",
+    });
+
+    await request(app).get("/api/agents").expect(401);
+    await request(app).get("/api/agents").set("Authorization", "Bearer admin-token").expect(200);
+    await request(app).get("/api/health").expect(200);
+    await request(app)
+      .get("/api/auth/status")
+      .expect(200, { required: true, authenticated: false });
+    await request(app)
+      .get("/api/auth/status")
+      .set("Authorization", "Bearer admin-token")
+      .expect(200, { required: true, authenticated: true });
+  });
+
+  it("exchanges valid admin credentials for the admin token", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      adminToken: "admin-token",
+      adminUsername: "operator",
+      adminPassword: "secret-password",
+    });
+
+    await request(app)
+      .post("/api/auth/login")
+      .send({ username: "operator", password: "wrong" })
+      .expect(401, { code: "invalid_credentials" });
+
+    const response = await request(app)
+      .post("/api/auth/login")
+      .send({ username: "operator", password: "secret-password" })
+      .expect(200);
+
+    expect(response.body).toEqual({ token: "admin-token" });
+  });
+
+  it("keeps worker-key endpoints separate from admin auth", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
+      adminToken: "admin-token",
+      workerApiKey: "worker-token",
+    });
+    const call = context.repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-05-29T00:00:00.000Z",
+    });
+
+    await request(context.app)
+      .get("/api/worker/session-config")
+      .query({ callId: call.id })
+      .set("x-lipivoice-worker-key", "worker-token")
+      .expect(200);
+    await request(context.app)
+      .get("/api/worker/session-config")
+      .query({ callId: call.id })
+      .set("Authorization", "Bearer admin-token")
+      .expect(401);
+  });
+
+  it("rate limits expensive session creation endpoints", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
+
+    for (let index = 0; index < 20; index += 1) {
+      await request(app)
+        .post("/api/realtime/session")
+        .send({ agentId: "agent_reception" })
+        .expect(201);
+    }
+
+    await request(app)
+      .post("/api/realtime/session")
+      .send({ agentId: "agent_reception" })
+      .expect(429, { code: "rate_limited" });
+  });
+
   it("returns seeded agents and runtimes", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
 
@@ -67,7 +145,8 @@ describe("server app", () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       runtimeHealth: {
         piper: async () => ({ status: "healthy", reason: null }),
-        google_tts: async () => ({ status: "healthy", reason: null }),
+        piper_http: async () => ({ status: "healthy", reason: null }),
+        coqui_http: async () => ({ status: "healthy", reason: null }),
         omnivoice: async () => ({ status: "healthy", reason: null }),
         indic_parler: async () => ({ status: "license_required", reason: "hf_token_required" }),
       },
@@ -78,17 +157,20 @@ describe("server app", () => {
     expect(response.body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "google_cloud_tts",
-          name: "Google Cloud TTS",
-          access: "cloud",
+          id: "piper_http_tts",
+          name: "Piper HTTP TTS",
+          access: "open",
           healthStatus: "healthy",
-          runtimeId: "runtime_google_tts",
-          voiceId: "voice_google_tts_ne",
+        }),
+        expect.objectContaining({
+          id: "coqui_xtts",
+          name: "Coqui XTTS",
+          healthStatus: "healthy",
         }),
         expect.objectContaining({
           id: "indic_parler_tts",
-          name: "Indic Parler TTS",
-          role: "best proven Nepali baseline",
+          name: "Indic Parler Nepali",
+          role: "Nepali fine-tuned Parler-TTS evaluation candidate",
           healthStatus: "license_required",
         }),
         expect.objectContaining({
@@ -106,7 +188,7 @@ describe("server app", () => {
         }),
         expect.objectContaining({
           id: "coqui_piper_vits",
-          name: "Coqui VITS / Piper-VITS",
+          name: "LipiVoice Studio",
           healthStatus: "healthy",
           runtimeId: "runtime_piper",
         }),
@@ -114,7 +196,7 @@ describe("server app", () => {
     );
   });
 
-  it("benchmarks the available Piper-VITS provider through the configured TTS adapter", async () => {
+  it("benchmarks the available LipiVoice Studio provider through the configured TTS adapter", async () => {
     const tts = {
       health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
       synthesize: vi.fn(async () => ({
@@ -142,7 +224,7 @@ describe("server app", () => {
     expect(response.body).toEqual({
       id: expect.any(String),
       providerId: "coqui_piper_vits",
-      providerName: "Coqui VITS / Piper-VITS",
+      providerName: "LipiVoice Studio",
       text: "नमस्ते, लिपिभ्वाइस परीक्षण हो।",
       status: "generated",
       healthStatus: "healthy",
@@ -154,47 +236,49 @@ describe("server app", () => {
     });
   });
 
-  it("benchmarks Google Cloud TTS through the configured cloud adapter", async () => {
-    const googleTts = {
+  it("benchmarks Piper HTTP through the configured adapter", async () => {
+    const piperHttp = {
       health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
       synthesize: vi.fn(async () => ({
-        audioBase64: Buffer.from("mp3-data").toString("base64"),
-        mimeType: "audio/mpeg",
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper_http",
+        voiceId: "voice_piper_ne_sita",
       })),
     };
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       ttsAdapters: {
-        google_tts: googleTts,
+        piper_http: piperHttp,
       },
       runtimeHealth: {
-        google_tts: googleTts.health,
+        piper_http: piperHttp.health,
       },
       now: () => new Date("2026-05-31T00:00:00.000Z"),
     });
 
     const response = await request(app)
       .post("/api/tts/benchmark")
-      .send({ providerId: "google_cloud_tts", text: "नमस्ते" })
+      .send({ providerId: "piper_http_tts", text: "नमस्ते" })
       .expect(200);
 
-    expect(googleTts.synthesize).toHaveBeenCalledWith({
-      text: "नमस्ते",
-      voicePath: "voice_google_tts_ne",
-    });
+    expect(piperHttp.synthesize).toHaveBeenCalled();
     expect(response.body).toMatchObject({
-      providerId: "google_cloud_tts",
-      providerName: "Google Cloud TTS",
+      providerId: "piper_http_tts",
+      providerName: "Piper HTTP TTS",
       status: "generated",
       healthStatus: "healthy",
       code: null,
-      audioBase64: Buffer.from("mp3-data").toString("base64"),
-      mimeType: "audio/mpeg",
+      audioBase64: Buffer.from("wav-data").toString("base64"),
+      mimeType: "audio/wav",
       createdAt: "2026-05-31T00:00:00.000Z",
     });
   });
 
   it("returns a benchmark readiness result when a provider is not installed", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      runtimeHealth: {
+        indic_parler: async () => ({ status: "missing_model", reason: "model_catalog_not_found" }),
+      },
       now: () => new Date("2026-05-31T00:00:00.000Z"),
     });
 
@@ -205,7 +289,7 @@ describe("server app", () => {
 
     expect(response.body).toMatchObject({
       providerId: "indic_parler_tts",
-      providerName: "Indic Parler TTS",
+      providerName: "Indic Parler Nepali",
       status: "unavailable",
       healthStatus: "missing_model",
       code: "provider_not_installed",
@@ -214,29 +298,29 @@ describe("server app", () => {
   });
 
   it("returns a structured benchmark result when provider synthesis fails", async () => {
-    const googleTts = {
+    const piperHttp = {
       health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
       synthesize: vi.fn(async () => {
-        throw new Error("permission denied");
+        throw new Error("connection refused");
       }),
     };
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
       ttsAdapters: {
-        google_tts: googleTts,
+        piper_http: piperHttp,
       },
       runtimeHealth: {
-        google_tts: googleTts.health,
+        piper_http: piperHttp.health,
       },
       now: () => new Date("2026-05-31T00:00:00.000Z"),
     });
 
     const response = await request(app)
       .post("/api/tts/benchmark")
-      .send({ providerId: "google_cloud_tts", text: "नमस्ते" })
+      .send({ providerId: "piper_http_tts", text: "नमस्ते" })
       .expect(502);
 
     expect(response.body).toMatchObject({
-      providerId: "google_cloud_tts",
+      providerId: "piper_http_tts",
       status: "unavailable",
       healthStatus: "healthy",
       code: "provider_synthesis_failed",
@@ -289,6 +373,57 @@ describe("server app", () => {
     });
   });
 
+  it("expires stale connected calls before listing calls and usage", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:20:00.000Z"),
+    });
+    const agent = context.repositories.agents.list()[0];
+    const staleCall = context.repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: agent.id,
+      status: "connected",
+      startedAt: "2026-05-31T00:00:00.000Z",
+    });
+    context.repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: agent.id,
+      status: "connected",
+      startedAt: "2026-05-31T00:19:00.000Z",
+    });
+    const abandonedSimulation = context.repositories.calls.update({
+      ...context.repositories.calls.create({
+        channel: "simulation",
+        direction: "inbound",
+        agentId: agent.id,
+        status: "disconnected",
+        startedAt: "2026-05-31T00:00:00.000Z",
+      }),
+      endedAt: "2026-05-31T12:00:00.000Z",
+      durationSeconds: 43_200,
+    });
+
+    const calls = await request(context.app).get("/api/calls").expect(200);
+    const usage = await request(context.app).get("/api/usage").expect(200);
+
+    expect(calls.body.find((call: { id: string }) => call.id === staleCall.id)).toMatchObject({
+      status: "disconnected",
+      endedAt: "2026-05-31T00:20:00.000Z",
+      durationSeconds: 600,
+      failureReason: "stale_session_expired",
+    });
+    expect(calls.body.find((call: { id: string }) => call.id === abandonedSimulation.id)).toMatchObject({
+      durationSeconds: 600,
+      failureReason: "stale_session_expired",
+    });
+    expect(usage.body).toMatchObject({
+      callsTotal: 3,
+      activeCalls: 1,
+      callMinutes: 20,
+    });
+  });
+
   it("creates a simulated call with an initial event", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
     const agentId = (await request(app).get("/api/agents")).body[0].id;
@@ -300,6 +435,650 @@ describe("server app", () => {
 
     expect(response.body.call.status).toBe("connected");
     expect(response.body.events[0].payload.status).toBe("connected");
+  });
+
+  it("starts a LiveKit web call and returns connection data", async () => {
+    const liveKit = {
+      startWebCall: vi.fn().mockResolvedValue({
+        wsUrl: "ws://127.0.0.1:7880",
+        roomName: "lipivoice-call-call_123",
+        participantIdentity: "caller_call_123",
+        token: "jwt-token",
+        dispatchId: "dispatch_1",
+      }),
+    };
+    const { app } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { liveKit });
+
+    const response = await request(app)
+      .post("/api/livekit/web-call/start")
+      .send({ agentId: "agent_reception" })
+      .expect(201);
+
+    expect(response.body.call.channel).toBe("web");
+    expect(response.body.events[0].type).toBe("status");
+    expect(response.body.livekit.token).toBe("jwt-token");
+    expect(liveKit.startWebCall).toHaveBeenCalledWith({
+      callId: response.body.call.id,
+      agentId: "agent_reception",
+      participantIdentity: `caller_${response.body.call.id}`,
+    });
+  });
+
+  it("persists worker events with a worker API key", async () => {
+    const { app, repositories } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { workerApiKey: "worker-secret" });
+    const call = repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    const response = await request(app)
+      .post(`/api/worker/calls/${call.id}/events`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({
+        events: [
+          {
+            type: "transcript",
+            actor: "assistant",
+            payload: { text: "नमस्ते" },
+            severity: "info",
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(response.body.events).toHaveLength(1);
+    expect(repositories.callEvents.listForCall(call.id)).toMatchObject([
+      expect.objectContaining({
+        type: "transcript",
+        actor: "assistant",
+        payload: { text: "नमस्ते" },
+      }),
+    ]);
+  });
+
+  it("materializes operation records from worker transcript events when tools are not called", async () => {
+    const { app, repositories } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { workerApiKey: "worker-secret", now: () => new Date("2026-06-02T01:00:00.000Z") });
+    const call = repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    await request(app)
+      .post(`/api/worker/calls/${call.id}/events`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({
+        events: [
+          {
+            type: "transcript",
+            actor: "user",
+            payload: { text: "मेरो नाम Sita हो। claim बारे supervisor follow-up चाहियो।" },
+            severity: "info",
+          },
+          {
+            type: "transcript",
+            actor: "user",
+            payload: { text: "मेरो फोन ९८ ०१ २३ ४५ ६७ हो।" },
+            severity: "info",
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(repositories.customers.list()).toEqual([
+      expect.objectContaining({
+        name: "Sita",
+        phoneNumber: "9801234567",
+        lastCallId: call.id,
+        source: "voice_call",
+      }),
+    ]);
+    expect(repositories.tickets.list()).toEqual([
+      expect.objectContaining({
+        customerId: repositories.customers.list()[0]?.id,
+        callId: call.id,
+        status: "open",
+        priority: "high",
+        source: "voice_call",
+      }),
+    ]);
+  });
+
+  it("materializes a new insurance inquiry from Nepali transcript turns", async () => {
+    const { app, repositories } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { workerApiKey: "worker-secret", now: () => new Date("2026-06-02T01:00:00.000Z") });
+    const call = repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    await request(app)
+      .post(`/api/worker/calls/${call.id}/events`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({
+        events: [
+          { type: "transcript", actor: "user", payload: { text: "मेरो नाम उपेन्द्र मान श्रेष्ठ हो।" } },
+          { type: "transcript", actor: "user", payload: { text: "मलाई खुट्टाको इन्सुरेन्स गर्ने थियो।" } },
+          { type: "transcript", actor: "user", payload: { text: "मेरो नम्बर ९८ ४१ ५ १२ ३ १३ हो।" } },
+        ],
+      })
+      .expect(201);
+
+    expect(repositories.customers.list()).toEqual([
+      expect.objectContaining({
+        name: "उपेन्द्र मान श्रेष्ठ",
+        phoneNumber: "9841512313",
+        source: "voice_call",
+      }),
+    ]);
+    expect(repositories.tickets.list()).toEqual([
+      expect.objectContaining({
+        callId: call.id,
+        type: "policy_question",
+        priority: "normal",
+        source: "voice_call",
+      }),
+    ]);
+  });
+
+  it("executes worker business tools and records the tool call", async () => {
+    const { app, repositories } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { workerApiKey: "worker-secret", now: () => new Date("2026-06-02T01:00:00.000Z") });
+    const call = repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    const response = await request(app)
+      .post(`/api/worker/calls/${call.id}/tools/customer-lookup`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({ phoneNumber: "+977 9801234567" })
+      .expect(200);
+
+    expect(response.body.result).toMatchObject({
+      ok: true,
+      found: false,
+      customer: {
+        name: "Caller",
+        phoneNumber: "9779801234567",
+      },
+    });
+    expect(repositories.customers.list()).toEqual([
+      expect.objectContaining({
+        phoneNumber: "9779801234567",
+        lastCallId: call.id,
+        source: "voice_call",
+      }),
+    ]);
+    expect(repositories.callEvents.listForCall(call.id)).toEqual([
+      expect.objectContaining({
+        type: "tool_call",
+        actor: "tool",
+        timestamp: "2026-06-02T01:00:00.000Z",
+        payload: expect.objectContaining({
+          toolName: "customer-lookup",
+          input: { phoneNumber: "+977 9801234567" },
+          result: expect.objectContaining({ found: false }),
+        }),
+      }),
+    ]);
+  });
+
+  it("persists worker callback, transfer, and escalation records", async () => {
+    const { app, repositories } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), { workerApiKey: "worker-secret", now: () => new Date("2026-06-02T01:00:00.000Z") });
+    const call = repositories.calls.create({
+      channel: "web",
+      direction: "inbound",
+      agentId: "agent_reception",
+      status: "connected",
+      startedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    await request(app)
+      .post(`/api/worker/calls/${call.id}/tools/schedule-callback`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({ name: "Sita", phoneNumber: "9801234567", preferredTime: "tomorrow morning", reason: "renewal" })
+      .expect(200);
+    await request(app)
+      .post(`/api/worker/calls/${call.id}/tools/transfer-call`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({ name: "Sita", phoneNumber: "9801234567", department: "claims", reason: "claim question" })
+      .expect(200);
+    await request(app)
+      .post(`/api/worker/calls/${call.id}/tools/create-escalation`)
+      .set("x-lipivoice-worker-key", "worker-secret")
+      .send({ name: "Sita", phoneNumber: "9801234567", urgency: "urgent", reason: "complaint follow-up" })
+      .expect(200);
+
+    expect(repositories.customers.list()).toHaveLength(1);
+    expect(repositories.appointments.list()).toEqual([
+      expect.objectContaining({ callId: call.id, callerName: "Sita", status: "scheduled" }),
+    ]);
+    expect(repositories.transfers.list()).toEqual([
+      expect.objectContaining({ callId: call.id, department: "claims", status: "queued" }),
+    ]);
+    expect(repositories.tickets.list()).toEqual([
+      expect.objectContaining({ callId: call.id, priority: "urgent", status: "open" }),
+    ]);
+  });
+
+  it("runs a conversational Nepali simulated call turn without replacing a selected managed voice with local fallback", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "नमस्ते, म तपाईंलाई सहयोग गर्न तयार छु।"),
+    };
+    const piperHttpFailing = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => {
+        throw new Error("piper_http blocked");
+      }),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper",
+        voiceId: "voice_lipi_ml_ne",
+      })),
+    };
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4",
+      tts: piperTts,
+      ttsAdapters: {
+        piper_http: piperHttpFailing,
+        piper: piperTts,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const agentId = workspace.agents[0].id;
+    const started = await request(app).post("/api/calls/simulate").send({ agentId }).expect(201);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({
+        text: "नमस्ते, मेरो अर्डर कहाँ छ?",
+        language: "ne",
+        voiceId: "voice_lipi_ml_ne",
+      })
+      .expect(200);
+
+    expect(llm.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gemma-4",
+        system: expect.stringContaining("नेपालीमा मात्र"),
+        messages: [{ role: "user", content: "नमस्ते, मेरो अर्डर कहाँ छ?" }],
+      }),
+    );
+    expect(response.body).toMatchObject({
+      assistantText: "नमस्ते, म तपाईंलाई सहयोग गर्न तयार छु।",
+    });
+  });
+
+  it("asks for Nepali or English instead of sending unsupported mixed speech to the LLM", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "should not be called"),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper",
+        voiceId: "voice_lipi_ml_ne",
+      })),
+    };
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4",
+      tts: piperTts,
+      ttsAdapters: {
+        piper: piperTts,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const started = await request(app).post("/api/calls/simulate").send({ agentId: workspace.agents[0].id }).expect(201);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({
+        text: "पति पार्स तो इंचरेंस गरिक्प।",
+        language: "ne",
+        voiceId: "voice_lipi_ml_ne",
+      })
+      .expect(200);
+
+    expect(llm.chat).not.toHaveBeenCalled();
+    expect(response.body).toMatchObject({
+      assistantText: "माफ गर्नुहोस्, म नेपाली वा English मा मात्रै सहयोग गर्न सक्छु। कृपया नेपाली वा English मा भन्नुहुन्छ?",
+      providerId: "piper",
+      voiceId: "voice_lipi_ml_ne",
+    });
+  });
+
+  it("moves repeated unsupported mixed speech to callback intake instead of repeating clarification", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "हजुर, म विवरण नोट गरिदिन्छु। कृपया नाम, फोन नम्बर, र policy वा claim number भन्नुहोस्।"),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper",
+        voiceId: "voice_lipi_ml_ne",
+      })),
+    };
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4",
+      tts: piperTts,
+      ttsAdapters: {
+        piper: piperTts,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const started = await request(app).post("/api/calls/simulate").send({ agentId: workspace.agents[0].id }).expect(201);
+
+    await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({ text: "पति पार्स तो इंचरेंस गरिक्प।", language: "ne", voiceId: "voice_lipi_ml_ne" })
+      .expect(200);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({ text: "ति पार्सा, गौन रुपो।", language: "ne", voiceId: "voice_lipi_ml_ne" })
+      .expect(200);
+
+    expect(llm.chat).toHaveBeenCalledTimes(1);
+    const llmCalls = llm.chat.mock.calls as unknown as Array<[{ system: string }]>;
+    const llmCall = llmCalls[0]?.[0];
+    expect(llmCall?.system).toContain("The caller is still unclear after one clarification");
+    expect(llmCall?.system).toContain("Do not say the earlier Nepali-or-English clarification again");
+    expect(llmCall?.system).not.toContain("माफ गर्नुहोस्, म नेपाली वा English मा मात्रै सहयोग गर्न सक्छु");
+    expect(llm.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          { role: "user", content: "पति पार्स तो इंचरेंस गरिक्प।" },
+          { role: "user", content: "ति पार्सा, गौन रुपो।" },
+        ]),
+      }),
+    );
+    expect(response.body.assistantText).toBe(
+      "हजुर, म विवरण नोट गरिदिन्छु। कृपया नाम, फोन नम्बर, र policy वा claim number भन्नुहोस्।",
+    );
+  });
+
+  it("falls back to intake if the LLM still repeats the unsupported-language clarification", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "माफ गर्नुहोस्, म नेपाली वा English मा मात्रै सहयोग गर्न सक्छु। कृपया नेपाली वा English मा भन्नुहुन्छ?"),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper",
+        voiceId: "voice_lipi_ml_ne",
+      })),
+    };
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4",
+      tts: piperTts,
+      ttsAdapters: { piper: piperTts },
+    });
+    const started = await request(app).post("/api/calls/simulate").send({ agentId: workspace.agents[0].id }).expect(201);
+
+    await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({ text: "पति पार्स तो इंचरेंस गरिक्प।", language: "ne", voiceId: "voice_lipi_ml_ne" })
+      .expect(200);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({ text: "ति पार्सा, गौन रुपो।", language: "ne", voiceId: "voice_lipi_ml_ne" })
+      .expect(200);
+
+    expect(response.body.assistantText).toContain("कृपया आफ्नो नाम, फोन नम्बर");
+    expect(response.body.assistantText).not.toContain("नेपाली वा English मा मात्रै");
+  });
+
+  it("uses the VLLM_MODEL env model for the default remote LLM asset", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "नमस्ते"),
+    };
+
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4-finetuned-indic-4b",
+      llmAdapters: {
+        vllm: llm,
+      },
+      tts: {
+        health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+        synthesize: vi.fn(async () => ({
+          audioBase64: Buffer.from("audio").toString("base64"),
+          mimeType: "audio/wav",
+        })),
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+
+    const started = await request(app).post("/api/calls/simulate").send({ agentId: workspace.agents[0].id }).expect(201);
+    await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({
+        text: "नमस्ते",
+        language: "ne",
+        voiceId: "voice_lipi_ml_ne",
+      })
+      .expect(200);
+
+    expect(llm.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gemma-4-finetuned-indic-4b",
+      }),
+    );
+  });
+
+  it("treats newari as unsupported for simulation", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    const llm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "should not be called"),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav" as const,
+        providerId: "piper",
+        voiceId: "voice_lipi_ml_ne",
+      })),
+    };
+
+    const app = createAppForTest(workspace, {
+      llm,
+      llmModel: "gemma-4",
+      tts: piperTts,
+      ttsAdapters: {
+        piper: piperTts,
+      },
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const agentId = workspace.agents[0].id;
+    const started = await request(app).post("/api/calls/simulate").send({ agentId }).expect(201);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({
+        text: "jaya, namaste",
+        language: "newari",
+      })
+      .expect(200);
+
+    expect(llm.chat).not.toHaveBeenCalled();
+    expect(response.body.assistantText).toBe(
+      "माफ गर्नुहोस्, म नेपाली वा English मा मात्रै सहयोग गर्न सक्छु। कृपया नेपाली वा English मा भन्नुहुन्छ?",
+    );
+  });
+
+  it("rejects cloud Gemini simulation when running fully self-hosted", async () => {
+    const workspace = createRemoteWorkspace({
+      now: "2026-05-29T00:00:00.000Z",
+      vllmEndpoint: "http://127.0.0.1:8002/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://127.0.0.1:5001",
+    });
+    workspace.modelRuntimes.push({
+      id: "runtime_gemini",
+      kind: "llm",
+      adapter: "gemini",
+      endpoint: "https://generativelanguage.googleapis.com/v1beta",
+      configuredState: "not_configured",
+      healthStatus: "unknown",
+      defaultModelId: "model_gemini_flash",
+      concurrencyLimit: 4,
+      hardwareHints: ["cloud"],
+      createdAt: "2026-05-29T00:00:00.000Z",
+      updatedAt: "2026-05-29T00:00:00.000Z",
+    });
+    workspace.modelAssets.push({
+      id: "model_gemini_flash",
+      runtimeId: "runtime_gemini",
+      name: "Cloud Gemini",
+      kind: "llm",
+      family: "gemini",
+      version: "2.5-flash",
+      pathOrTag: "google:gemini-2.5-flash",
+      license: "cloud",
+      parameterSize: "managed",
+      quantization: "managed",
+      languageSupport: ["ne", "en"],
+      installedState: "unknown",
+    });
+    workspace.agents[0] = {
+      ...workspace.agents[0],
+      modelRuntimeId: "runtime_gemini",
+      modelAssetId: "model_gemini_flash",
+    };
+
+    const vllm = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      chat: vi.fn(async () => "vllm should not be used"),
+    };
+    const piperTts = {
+      health: vi.fn(async () => ({ status: "healthy" as const, reason: null })),
+      synthesize: vi.fn(async () => ({
+        audioBase64: Buffer.from("wav-data").toString("base64"),
+        mimeType: "audio/wav",
+      })),
+    };
+
+    const app = createAppForTest(workspace, {
+      llm: vllm,
+      llmModel: "gemma-4",
+      llmAdapters: {
+        vllm,
+      },
+      tts: piperTts,
+      now: () => new Date("2026-05-31T00:00:00.000Z"),
+    });
+    const agentId = workspace.agents[0].id;
+    const started = await request(app).post("/api/calls/simulate").send({ agentId }).expect(201);
+
+    const response = await request(app)
+      .post(`/api/calls/${started.body.call.id}/simulate-turn`)
+      .send({
+        text: "नमस्ते",
+        language: "ne",
+      })
+      .expect(409);
+
+    expect(vllm.chat).not.toHaveBeenCalled();
+    expect(response.body).toMatchObject({
+      code: "runtime_not_configured",
+    });
   });
 
   it("creates short-lived realtime session tokens", async () => {
@@ -351,13 +1130,30 @@ describe("server app", () => {
 
     const response = await request(app).get("/api/tools").expect(200);
 
-    expect(response.body).toEqual([
-      expect.objectContaining({
-        id: "tool_order_lookup",
-        method: "GET",
-        name: "Order lookup",
-      }),
-    ]);
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "tool_collect_callback",
+          method: "POST",
+          name: "Collect callback",
+        }),
+        expect.objectContaining({
+          id: "tool_claim_intake",
+          method: "POST",
+          name: "Claim intake",
+        }),
+        expect.objectContaining({
+          id: "tool_document_request",
+          method: "POST",
+          name: "Document request",
+        }),
+        expect.objectContaining({
+          id: "tool_office_hours",
+          method: "GET",
+          name: "Office hours",
+        }),
+      ]),
+    );
   });
 
   it("returns and saves phone numbers", async () => {
@@ -506,6 +1302,87 @@ describe("server app", () => {
       publicBaseUrl: "https://voice.example.com",
       allowPrivateToolUrls: true,
       recordingRetentionDays: 14,
+    });
+  });
+
+  it("saves SIP trunk settings for later LiveKit SIP wiring", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
+    const current = await request(app).get("/api/settings").expect(200);
+
+    expect(current.body.sipTrunk).toMatchObject({
+      enabled: false,
+      mode: "asterisk",
+      transport: "udp",
+    });
+
+    const saved = await request(app)
+      .post("/api/settings")
+      .send({
+        ...current.body,
+        sipTrunk: {
+          enabled: true,
+          provider: "ntc_easy_phone",
+          mode: "asterisk",
+          sipServer: "ims.ntc.net.np",
+          outboundProxy: "202.70.74.178:5060",
+          domain: "ims.ntc.net.np",
+          username: "+97760400011",
+          authUsername: "+97760400011@ims.ntc.net.np",
+          fromNumber: "+97760400011",
+          transport: "udp",
+        },
+        updatedAt: "2026-05-31T00:00:01.000Z",
+      })
+      .expect(200);
+
+    expect(saved.body.sipTrunk).toEqual({
+      enabled: true,
+      provider: "ntc_easy_phone",
+      mode: "asterisk",
+      sipServer: "ims.ntc.net.np",
+      outboundProxy: "202.70.74.178:5060",
+      domain: "ims.ntc.net.np",
+      username: "+97760400011",
+      authUsername: "+97760400011@ims.ntc.net.np",
+      fromNumber: "+97760400011",
+      transport: "udp",
+    });
+  });
+
+  it("stores the SIP trunk password as a write-only secret", async () => {
+    const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"), {
+      now: () => new Date("2026-05-31T00:00:02.000Z"),
+    });
+
+    const initial = await request(app).get("/api/settings/sip-secret").expect(200);
+
+    expect(initial.body).toEqual({
+      configured: false,
+      updatedAt: null,
+    });
+
+    const saved = await request(app)
+      .post("/api/settings/sip-secret")
+      .send({ password: "236790_Ntc1" })
+      .expect(200);
+
+    expect(saved.body).toEqual({
+      configured: true,
+      updatedAt: "2026-05-31T00:00:02.000Z",
+    });
+    expect(saved.body).not.toHaveProperty("password");
+
+    const current = await request(app).get("/api/settings/sip-secret").expect(200);
+    expect(current.body).toEqual({
+      configured: true,
+      updatedAt: "2026-05-31T00:00:02.000Z",
+    });
+    expect(current.body).not.toHaveProperty("password");
+
+    const cleared = await request(app).delete("/api/settings/sip-secret").expect(200);
+    expect(cleared.body).toEqual({
+      configured: false,
+      updatedAt: null,
     });
   });
 
@@ -701,6 +1578,25 @@ describe("server app", () => {
     expect(response.body).toEqual({ code: "invalid_agent" });
   });
 
+  it("lists model assets for runtime selection", async () => {
+    const app = createAppForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }));
+
+    const response = await request(app).get("/api/model-assets").expect(200);
+
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "model_vllm_remote", kind: "llm", name: "LipiCore Realtime" }),
+        expect.objectContaining({ id: "model_lipi_ml_whisper_large_v3", kind: "stt" }),
+        expect.objectContaining({ id: "model_coqui_xtts_ne", kind: "tts" }),
+      ]),
+    );
+  });
+
   it("returns agent_not_found for missing or unknown simulated call agents", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"));
 
@@ -762,6 +1658,174 @@ describe("server app", () => {
     ]);
   });
 
+  it("imports renewal customer data and launches outbound renewal calls with policy context", async () => {
+    const context = createAppContextForTest(createDefaultWorkspace("2026-06-24T00:00:00.000Z"), {
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+    const agentId = context.repositories.agents.list()[0].id;
+
+    const imported = await request(context.app)
+      .post("/api/renewals/import")
+      .send({
+        records: [
+          {
+            customerName: "Ram Shrestha",
+            phoneNumber: "+977 9841234567",
+            preferredLanguage: "ne-NP",
+            policyNumber: "SALICO-MOTOR-12345",
+            policyType: "motor",
+            premium: 18000,
+            sumInsured: 1200000,
+            startDate: "2025-07-15",
+            endDate: "2026-07-15",
+            renewalDueDate: "2026-07-15",
+            cmsId: "cms-pol-12345",
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(imported.body).toMatchObject({ imported: 1, customers: 1, policies: 1 });
+    expect(imported.body.records[0].customer).toMatchObject({
+      name: "Ram Shrestha",
+      phoneNumber: "9779841234567",
+      source: "import",
+    });
+    expect(imported.body.records[0].policy).toMatchObject({
+      policyNumber: "SALICO-MOTOR-12345",
+      type: "motor",
+      premium: 18000,
+      renewalDueDate: "2026-07-15",
+      cmsId: "cms-pol-12345",
+    });
+
+    const campaign = await request(context.app)
+      .post("/api/campaigns/build-renewal")
+      .send({ agentId, withinDays: 45 })
+      .expect(201);
+    expect(campaign.body).toMatchObject({
+      type: "renewal_reminder",
+      totalContacts: 1,
+    });
+    expect(campaign.body.contacts[0]).toMatchObject({
+      name: "Ram Shrestha",
+      phoneNumber: "9779841234567",
+      contextData: expect.objectContaining({
+        policyNumber: "SALICO-MOTOR-12345",
+        renewalDate: "2026-07-15",
+        premium: "NPR 18,000",
+      }),
+    });
+
+    await request(context.app).post(`/api/campaigns/${campaign.body.id}/launch`).send({}).expect(200);
+    const runs = await request(context.app).get(`/api/campaigns/${campaign.body.id}/runs`).expect(200);
+    expect(runs.body[0]).toMatchObject({ status: "connected", callId: expect.any(String) });
+
+    const callId = runs.body[0].callId;
+    const call = context.repositories.calls.get(callId);
+    expect(call).toMatchObject({
+      channel: "phone",
+      direction: "outbound",
+      agentId,
+      status: "connected",
+    });
+    const events = await request(context.app).get(`/api/calls/${callId}/events`).expect(200);
+    expect(events.body[0]).toMatchObject({
+      type: "status",
+      actor: "system",
+      payload: expect.objectContaining({
+        status: "outbound_context_ready",
+        to: "9779841234567",
+        customerName: "Ram Shrestha",
+        policyNumber: "SALICO-MOTOR-12345",
+        suggestedOpening: expect.stringContaining("renewal"),
+        contextPromptSuffix: expect.stringContaining("Policy number: SALICO-MOTOR-12345"),
+      }),
+    });
+  });
+
+  it("dials renewal campaign contacts through LiveKit SIP when SIP settings are enabled", async () => {
+    const startOutboundSipCall = vi.fn(async () => ({
+      roomName: "lipivoice-call-call_1",
+      dispatchId: "dispatch_1",
+      trunkId: "trunk_1",
+      participantId: "sip_participant_1",
+      participantIdentity: "sip_call_1",
+    }));
+    const context = createAppContextForTest(createDefaultWorkspace("2026-06-24T00:00:00.000Z"), {
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      liveKit: {
+        startWebCall: vi.fn(),
+        startOutboundSipCall,
+      },
+    });
+    const settings = context.repositories.settings.get();
+    context.repositories.settings.save({
+      ...settings,
+      sipTrunk: {
+        enabled: true,
+        provider: "ntc_easy_phone",
+        mode: "asterisk",
+        sipServer: "ims.ntc.net.np",
+        outboundProxy: "202.70.74.178:5060",
+        domain: "ims.ntc.net.np",
+        username: "+97760400011",
+        authUsername: "+97760400011@ims.ntc.net.np",
+        fromNumber: "+97760400011",
+        transport: "udp",
+      },
+    });
+    context.repositories.secrets.save({
+      id: "sip_trunk_password",
+      value: "236790_Ntc1",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+    const agentId = context.repositories.agents.list()[0].id;
+
+    await request(context.app)
+      .post("/api/renewals/import")
+      .send({
+        records: [
+          {
+            customerName: "Ram Shrestha",
+            phoneNumber: "+977 9841234567",
+            policyNumber: "SALICO-MOTOR-12345",
+            policyType: "motor",
+            premium: 18000,
+            endDate: "2026-07-15",
+            renewalDueDate: "2026-07-15",
+          },
+        ],
+      })
+      .expect(201);
+
+    const campaign = await request(context.app)
+      .post("/api/campaigns/build-renewal")
+      .send({ agentId, withinDays: 45 })
+      .expect(201);
+    await request(context.app).post(`/api/campaigns/${campaign.body.id}/launch`).send({}).expect(200);
+    const runs = await request(context.app).get(`/api/campaigns/${campaign.body.id}/runs`).expect(200);
+    const events = await request(context.app).get(`/api/calls/${runs.body[0].callId}/events`).expect(200);
+
+    expect(startOutboundSipCall).toHaveBeenCalledWith(expect.objectContaining({
+      agentId,
+      toNumber: "9779841234567",
+      fromNumber: "+97760400011",
+      contactName: "Ram Shrestha",
+      campaignId: campaign.body.id,
+      contextPromptSuffix: expect.stringContaining("Policy number: SALICO-MOTOR-12345"),
+    }));
+    expect(events.body[0].payload).toMatchObject({
+      status: "outbound_sip_dialing",
+      dialer: "livekit_sip",
+      sip: {
+        roomName: "lipivoice-call-call_1",
+        trunkId: "trunk_1",
+        participantId: "sip_participant_1",
+      },
+    });
+  });
+
   it("returns phone_number_unassigned when a number has no routed agent", async () => {
     const app = createAppForTest(createDefaultWorkspace("2026-05-31T00:00:00.000Z"));
 
@@ -787,6 +1851,33 @@ describe("server app", () => {
       .expect(409);
 
     expect(response.body).toEqual({ code: "phone_number_unassigned" });
+  });
+
+  it("includes realtime and managed voice runtime diagnostics", async () => {
+    const { app } = createAppContextForTest(createRemoteWorkspace({
+      now: "2026-06-02T00:00:00.000Z",
+      vllmEndpoint: "http://vllm.test/v1",
+      vllmModel: "gemma-4",
+      lipiMlEndpoint: "http://lipi.test",
+    }), {
+      runtimeHealth: {
+        vllm: async () => ({ status: "healthy", reason: null, latencyMs: 44 }),
+        faster_whisper: async () => ({ status: "healthy", reason: null, latencyMs: 91 }),
+        piper_http: async () => ({ status: "healthy", reason: null, latencyMs: 80 }),
+        coqui_http: async () => ({ status: "healthy", reason: null, latencyMs: 210 }),
+      },
+      liveKitConfigured: true,
+    });
+
+    const response = await request(app).get("/api/runtime-diagnostics").expect(200);
+
+    expect(response.body).toMatchObject({
+      liveKit: { status: "healthy" },
+      runtimes: expect.arrayContaining([
+        expect.objectContaining({ adapter: "vllm", healthStatus: "healthy" }),
+        expect.objectContaining({ adapter: "piper_http", healthStatus: "healthy" }),
+      ]),
+    });
   });
 
   it("returns call_not_found for missing call events", async () => {
@@ -826,7 +1917,7 @@ describe("server app", () => {
 
     expect(response.body).toMatchObject({
       voiceId: "voice_piper_amy",
-      voiceName: "Piper Amy",
+      voiceName: "Asha",
       text: "Hello",
       audioBase64: "SGVsbG8=",
       mimeType: "audio/wav",
@@ -834,14 +1925,16 @@ describe("server app", () => {
     });
   });
 
-  it("generates speech with an injected Google TTS adapter", async () => {
+  it("generates speech with an injected managed TTS adapter", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
       ttsAdapters: {
-        google_tts: {
+        piper_http: {
           health: async () => ({ status: "healthy", reason: null }),
           synthesize: async (input) => ({
             audioBase64: Buffer.from(input.text).toString("base64"),
-            mimeType: "audio/mpeg",
+            mimeType: "audio/wav" as const,
+            providerId: "piper_http",
+            voiceId: "voice_piper_ne",
           }),
         },
       },
@@ -849,15 +1942,14 @@ describe("server app", () => {
 
     const response = await request(context.app)
       .post("/api/tts/generate")
-      .send({ text: "नमस्ते", voiceId: "voice_google_tts_ne" })
+      .send({ text: "नमस्ते", voiceId: "voice_piper_ne" })
       .expect(200);
 
     expect(response.body).toMatchObject({
-      voiceId: "voice_google_tts_ne",
-      voiceName: "Google Gemini Nepali",
+      voiceId: "voice_piper_ne",
       text: "नमस्ते",
       audioBase64: Buffer.from("नमस्ते").toString("base64"),
-      mimeType: "audio/mpeg",
+      mimeType: "audio/wav",
       createdAt: expect.any(String),
     });
   });
@@ -865,10 +1957,10 @@ describe("server app", () => {
   it("returns a structured TTS generation error when synthesis fails", async () => {
     const context = createAppContextForTest(createDefaultWorkspace("2026-05-29T00:00:00.000Z"), {
       ttsAdapters: {
-        google_tts: {
+        piper_http: {
           health: async () => ({ status: "healthy", reason: null }),
           synthesize: async () => {
-            throw new Error("permission denied");
+            throw new Error("connection refused");
           },
         },
       },
@@ -876,7 +1968,7 @@ describe("server app", () => {
 
     const response = await request(context.app)
       .post("/api/tts/generate")
-      .send({ text: "नमस्ते", voiceId: "voice_google_tts_ne" })
+      .send({ text: "नमस्ते", voiceId: "voice_piper_ne" })
       .expect(502);
 
     expect(response.body).toEqual({ code: "tts_synthesis_failed" });
@@ -903,7 +1995,7 @@ describe("server app", () => {
     expect(generated.body).toMatchObject({
       id: expect.any(String),
       voiceId: "voice_piper_amy",
-      voiceName: "Piper Amy",
+      voiceName: "Asha",
       text: "Hello history",
       audioBase64: "UklGRg==",
       mimeType: "audio/wav",

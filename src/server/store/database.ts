@@ -60,6 +60,39 @@ function runMigrations(db: DatabaseConnection): void {
       data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS customers (
+      id TEXT PRIMARY KEY,
+      phone TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tickets (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT,
+      call_id TEXT,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT,
+      call_id TEXT,
+      scheduled_at TEXT,
+      status TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS transfers (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT,
+      call_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS knowledge_bases (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL
@@ -79,6 +112,12 @@ function runMigrations(db: DatabaseConnection): void {
 
     CREATE TABLE IF NOT EXISTS settings (
       id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secrets (
+      id TEXT PRIMARY KEY,
+      updated_at TEXT NOT NULL,
       data TEXT NOT NULL
     );
 
@@ -121,11 +160,80 @@ function runMigrations(db: DatabaseConnection): void {
     CREATE INDEX IF NOT EXISTS consent_records_voice_idx
       ON consent_records (voice_id);
 
+    CREATE INDEX IF NOT EXISTS customers_phone_idx
+      ON customers (phone);
+
+    CREATE INDEX IF NOT EXISTS tickets_status_updated_idx
+      ON tickets (status, updated_at);
+
+    CREATE INDEX IF NOT EXISTS tickets_call_idx
+      ON tickets (call_id);
+
+    CREATE INDEX IF NOT EXISTS appointments_status_scheduled_idx
+      ON appointments (status, scheduled_at);
+
+    CREATE INDEX IF NOT EXISTS appointments_call_idx
+      ON appointments (call_id);
+
+    CREATE INDEX IF NOT EXISTS transfers_status_created_idx
+      ON transfers (status, created_at);
+
+    CREATE INDEX IF NOT EXISTS transfers_call_idx
+      ON transfers (call_id);
+
     CREATE INDEX IF NOT EXISTS knowledge_documents_base_idx
       ON knowledge_documents (knowledge_base_id);
 
     CREATE INDEX IF NOT EXISTS eval_runs_eval_started_idx
       ON eval_runs (eval_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS policies (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL,
+      policy_number TEXT NOT NULL,
+      status TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      cms_id TEXT,
+      data TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS policies_customer_idx
+      ON policies (customer_id);
+
+    CREATE INDEX IF NOT EXISTS policies_status_end_idx
+      ON policies (status, end_date);
+
+    CREATE INDEX IF NOT EXISTS policies_cms_idx
+      ON policies (cms_id);
+
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      type TEXT NOT NULL,
+      scheduled_at TEXT,
+      created_at TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS campaigns_status_scheduled_idx
+      ON campaigns (status, scheduled_at);
+
+    CREATE TABLE IF NOT EXISTS campaign_runs (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      customer_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      scheduled_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      data TEXT NOT NULL,
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS campaign_runs_campaign_status_idx
+      ON campaign_runs (campaign_id, status);
+
+    CREATE INDEX IF NOT EXISTS campaign_runs_customer_idx
+      ON campaign_runs (customer_id);
   `);
 }
 

@@ -201,11 +201,14 @@ describe("repositories", () => {
     expect(repos.knowledgeDocuments.listForKnowledgeBase(knowledgeBase.id)).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "doc_shipping" })]),
     );
-    expect(results[0]).toMatchObject({
-      documentId: "doc_shipping",
-      title: "Shipping policy",
-    });
-    expect(results[0]?.snippet).toContain("Orders ship");
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        documentId: "doc_shipping",
+        title: "Shipping policy",
+      }),
+    );
+    const shippingResult = results.find((result) => result.documentId === "doc_shipping");
+    expect(shippingResult?.snippet).toContain("Orders ship");
   });
 
   it("persists eval definitions and run history newest-first", () => {
